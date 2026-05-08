@@ -1,0 +1,283 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+git_root="$(git -C "$script_dir" rev-parse --show-toplevel)"
+remote_file="${CODEX_REMOTE_FILE:-$script_dir/remote-server.md}"
+repo_name="$(basename "$git_root")"
+remote_dir="${CODEX_REMOTE_DIR:-}"
+session_name="${CODEX_REMOTE_SESSION:-codex-$repo_name}"
+
+usage() {
+  cat <<'USAGE'
+Usage: codex-remote [--no-tmux] [--session NAME] [--dir REMOTE_DIR] [--shell SHELL] [--] [codex args...]
+
+Starts Codex on the SSH host listed in remote-server.md.
+
+Environment:
+  CODEX_REMOTE_FILE     Path to file containing an ssh command or user@host target
+  CODEX_REMOTE_DIR      Directory to cd into on the remote host
+  CODEX_REMOTE_SESSION  tmux session name, default: codex-<repo>
+  CODEX_REMOTE_SHELL    Remote shell used to load PATH, default: ${SHELL:-/bin/sh}
+USAGE
+}
+
+use_tmux=1
+codex_args=()
+remote_shell="${CODEX_REMOTE_SHELL:-}"
+
+enforce_codex_sandbox_args() {
+  local filtered_args=()
+  local skip_next=0
+  local arg
+
+  for arg in "${codex_args[@]}"; do
+    if [ "$skip_next" -eq 1 ]; then
+      skip_next=0
+      continue
+    fi
+
+    case "$arg" in
+      --sandbox|-s)
+        skip_next=1
+        ;;
+      --sandbox=*|-s=*|-s?*)
+        ;;
+      *)
+        filtered_args+=("$arg")
+        ;;
+    esac
+  done
+
+  codex_args=(--sandbox danger-full-access "${filtered_args[@]}")
+}
+
+quote_remote_path() {
+  case "$1" in
+    [~])
+      printf '~'
+      ;;
+    [~]/*)
+      local rest="${1#\~/}"
+      local quoted_rest
+      printf -v quoted_rest '%q' "$rest"
+      printf '%s/%s' '~' "$quoted_rest"
+      ;;
+    *)
+      printf '%q' "$1"
+      ;;
+  esac
+}
+
+parse_remote_line() {
+  local input="$1"
+  local token=""
+  local state="normal"
+  local char
+  local next
+  local i=0
+  local len="${#input}"
+  local in_token=0
+
+  remote_parts=()
+
+  while [ "$i" -lt "$len" ]; do
+    char="${input:i:1}"
+
+    case "$state" in
+      normal)
+        case "$char" in
+          [[:space:]])
+            if [ "$in_token" -eq 1 ]; then
+              remote_parts+=("$token")
+              token=""
+              in_token=0
+            fi
+            ;;
+          "'")
+            state="single"
+            in_token=1
+            ;;
+          '"')
+            state="double"
+            in_token=1
+            ;;
+          "\\")
+            in_token=1
+            i=$((i + 1))
+            if [ "$i" -ge "$len" ]; then
+              echo "codex-remote: trailing backslash in $remote_file" >&2
+              return 1
+            fi
+            token+="${input:i:1}"
+            ;;
+          *)
+            token+="$char"
+            in_token=1
+            ;;
+        esac
+        ;;
+      single)
+        if [ "$char" = "'" ]; then
+          state="normal"
+        else
+          token+="$char"
+        fi
+        ;;
+      double)
+        case "$char" in
+          '"')
+            state="normal"
+            ;;
+          "\\")
+            i=$((i + 1))
+            if [ "$i" -ge "$len" ]; then
+              token+="\\"
+            else
+              next="${input:i:1}"
+              case "$next" in
+                '"'|"\\"|'$'|'`')
+                  token+="$next"
+                  ;;
+                *)
+                  token+="\\$next"
+                  ;;
+              esac
+            fi
+            ;;
+          *)
+            token+="$char"
+            ;;
+        esac
+        ;;
+    esac
+
+    i=$((i + 1))
+  done
+
+  case "$state" in
+    single)
+      echo "codex-remote: unterminated single quote in $remote_file" >&2
+      return 1
+      ;;
+    double)
+      echo "codex-remote: unterminated double quote in $remote_file" >&2
+      return 1
+      ;;
+  esac
+
+  if [ "$in_token" -eq 1 ]; then
+    remote_parts+=("$token")
+  fi
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    --no-tmux)
+      use_tmux=0
+      shift
+      ;;
+    --session)
+      if [ "$#" -lt 2 ]; then
+        echo "codex-remote: --session requires a name" >&2
+        exit 2
+      fi
+      session_name="$2"
+      shift 2
+      ;;
+    --dir)
+      if [ "$#" -lt 2 ]; then
+        echo "codex-remote: --dir requires a remote directory" >&2
+        exit 2
+      fi
+      remote_dir="$2"
+      shift 2
+      ;;
+    --shell)
+      if [ "$#" -lt 2 ]; then
+        echo "codex-remote: --shell requires a remote shell path" >&2
+        exit 2
+      fi
+      remote_shell="$2"
+      shift 2
+      ;;
+    --)
+      shift
+      codex_args+=("$@")
+      break
+      ;;
+    *)
+      codex_args+=("$1")
+      shift
+      ;;
+  esac
+done
+
+enforce_codex_sandbox_args
+
+if [ ! -f "$remote_file" ]; then
+  echo "codex-remote: missing remote file: $remote_file" >&2
+  exit 1
+fi
+
+remote_line="$(
+  sed -n \
+    -e 's/^[[:space:]]*//' \
+    -e 's/[[:space:]]*$//' \
+    -e '/^$/d' \
+    -e '/^#/d' \
+    -e 'p' \
+    -e 'q' \
+    "$remote_file"
+)"
+
+if [ -z "$remote_line" ]; then
+  echo "codex-remote: no SSH target found in $remote_file" >&2
+  exit 1
+fi
+
+parse_remote_line "$remote_line"
+if [ "${#remote_parts[@]}" -eq 0 ]; then
+  echo "codex-remote: no SSH target found in $remote_file" >&2
+  exit 1
+fi
+
+if [ "${remote_parts[0]}" = "ssh" ]; then
+  ssh_args=("${remote_parts[@]:1}")
+else
+  ssh_args=("${remote_parts[@]}")
+fi
+
+if [ -z "$remote_dir" ]; then
+  printf -v quoted_repo_name '%q' "$repo_name"
+  quoted_remote_dir="\$HOME/projects/$quoted_repo_name"
+else
+  quoted_remote_dir="$(quote_remote_path "$remote_dir")"
+fi
+printf -v quoted_session_name '%q' "$session_name"
+quoted_codex_args=""
+if [ "${#codex_args[@]}" -gt 0 ]; then
+  printf -v quoted_codex_args ' %q' "${codex_args[@]}"
+fi
+
+codex_command="exec codex$quoted_codex_args"
+if [ -z "$remote_shell" ]; then
+  remote_shell="\${SHELL:-/bin/sh}"
+else
+  printf -v remote_shell '%q' "$remote_shell"
+fi
+printf -v quoted_codex_command '%q' "$codex_command"
+
+if [ "$use_tmux" -eq 1 ]; then
+  remote_payload="cd $quoted_remote_dir && $remote_shell -lic $quoted_codex_command; status=\$?; if [ \"\$status\" -ne 0 ]; then printf '\n[codex-remote] codex exited with status %s\n' \"\$status\"; exec $remote_shell -l; fi; exit \"\$status\""
+  printf -v quoted_remote_payload '%q' "$remote_payload"
+  remote_command="tmux new -A -s $quoted_session_name $quoted_remote_payload"
+else
+  remote_command="cd $quoted_remote_dir && exec $remote_shell -lic $quoted_codex_command"
+fi
+
+exec ssh -t "${ssh_args[@]}" "$remote_command"

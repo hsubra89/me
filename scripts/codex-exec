@@ -1,0 +1,255 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+git_root="$(git -C "$script_dir" rev-parse --show-toplevel)"
+remote_file="${CODEX_REMOTE_FILE:-$script_dir/remote-server.md}"
+repo_name="$(basename "$git_root")"
+remote_dir="${CODEX_REMOTE_DIR:-}"
+remote_shell="${CODEX_REMOTE_SHELL:-}"
+session_prefix="${CODEX_EXEC_SESSION_PREFIX:-codex-exec-$repo_name}"
+
+usage() {
+  cat <<'USAGE'
+Usage: codex_exec <prompt>
+
+Starts `codex exec` on the SSH host listed in remote-server.md inside a
+detached remote tmux session. The local command returns after Codex launches.
+
+Environment:
+  CODEX_REMOTE_FILE          Path to file containing an ssh command or user@host target
+  CODEX_REMOTE_DIR           Directory to cd into on the remote host
+  CODEX_REMOTE_SHELL         Remote shell used to load PATH, default: ${SHELL:-/bin/sh}
+  CODEX_EXEC_SESSION_PREFIX  tmux session prefix, default: codex-exec-<repo>
+USAGE
+}
+
+quote_remote_path() {
+  case "$1" in
+    [~])
+      printf '~'
+      ;;
+    [~]/*)
+      local rest="${1#\~/}"
+      local quoted_rest
+      printf -v quoted_rest '%q' "$rest"
+      printf '%s/%s' '~' "$quoted_rest"
+      ;;
+    *)
+      printf '%q' "$1"
+      ;;
+  esac
+}
+
+parse_remote_line() {
+  local input="$1"
+  local token=""
+  local state="normal"
+  local char
+  local next
+  local i=0
+  local len="${#input}"
+  local in_token=0
+
+  remote_parts=()
+
+  while [ "$i" -lt "$len" ]; do
+    char="${input:i:1}"
+
+    case "$state" in
+      normal)
+        case "$char" in
+          [[:space:]])
+            if [ "$in_token" -eq 1 ]; then
+              remote_parts+=("$token")
+              token=""
+              in_token=0
+            fi
+            ;;
+          "'")
+            state="single"
+            in_token=1
+            ;;
+          '"')
+            state="double"
+            in_token=1
+            ;;
+          "\\")
+            in_token=1
+            i=$((i + 1))
+            if [ "$i" -ge "$len" ]; then
+              echo "codex_exec: trailing backslash in $remote_file" >&2
+              return 1
+            fi
+            token+="${input:i:1}"
+            ;;
+          *)
+            token+="$char"
+            in_token=1
+            ;;
+        esac
+        ;;
+      single)
+        if [ "$char" = "'" ]; then
+          state="normal"
+        else
+          token+="$char"
+        fi
+        ;;
+      double)
+        case "$char" in
+          '"')
+            state="normal"
+            ;;
+          "\\")
+            i=$((i + 1))
+            if [ "$i" -ge "$len" ]; then
+              token+="\\"
+            else
+              next="${input:i:1}"
+              case "$next" in
+                '"'|"\\"|'$'|'`')
+                  token+="$next"
+                  ;;
+                *)
+                  token+="\\$next"
+                  ;;
+              esac
+            fi
+            ;;
+          *)
+            token+="$char"
+            ;;
+        esac
+        ;;
+    esac
+
+    i=$((i + 1))
+  done
+
+  case "$state" in
+    single)
+      echo "codex_exec: unterminated single quote in $remote_file" >&2
+      return 1
+      ;;
+    double)
+      echo "codex_exec: unterminated double quote in $remote_file" >&2
+      return 1
+      ;;
+  esac
+
+  if [ "$in_token" -eq 1 ]; then
+    remote_parts+=("$token")
+  fi
+}
+
+if [ "$#" -eq 1 ] && { [ "$1" = "--help" ] || [ "$1" = "-h" ]; }; then
+  usage
+  exit 0
+fi
+
+if [ "$#" -ne 1 ]; then
+  usage >&2
+  exit 2
+fi
+
+if [ ! -f "$remote_file" ]; then
+  echo "codex_exec: missing remote file: $remote_file" >&2
+  exit 1
+fi
+
+prompt="$1"
+remote_line="$(
+  sed -n \
+    -e 's/^[[:space:]]*//' \
+    -e 's/[[:space:]]*$//' \
+    -e '/^$/d' \
+    -e '/^#/d' \
+    -e 'p' \
+    -e 'q' \
+    "$remote_file"
+)"
+
+if [ -z "$remote_line" ]; then
+  echo "codex_exec: no SSH target found in $remote_file" >&2
+  exit 1
+fi
+
+parse_remote_line "$remote_line"
+if [ "${#remote_parts[@]}" -eq 0 ]; then
+  echo "codex_exec: no SSH target found in $remote_file" >&2
+  exit 1
+fi
+
+if [ "${remote_parts[0]}" = "ssh" ]; then
+  ssh_args=("${remote_parts[@]:1}")
+else
+  ssh_args=("${remote_parts[@]}")
+fi
+
+safe_session_prefix="$(printf '%s' "$session_prefix" | tr -c '[:alnum:]_.-' '-')"
+session_name="$safe_session_prefix-$(date +%Y%m%d%H%M%S)-$$"
+startup_fifo="/tmp/$session_name.startup.fifo"
+
+if [ -z "$remote_dir" ]; then
+  printf -v quoted_repo_name '%q' "$repo_name"
+  quoted_remote_dir="\$HOME/projects/$quoted_repo_name"
+  remote_dir_label="\$HOME/projects/$repo_name"
+else
+  quoted_remote_dir="$(quote_remote_path "$remote_dir")"
+  remote_dir_label="$remote_dir"
+fi
+
+printf -v quoted_session_name '%q' "$session_name"
+printf -v quoted_startup_fifo '%q' "$startup_fifo"
+
+codex_args=(
+  exec
+  --dangerously-bypass-approvals-and-sandbox
+  -m gpt-5.5
+  -c model_reasoning_effort=xhigh
+  --color never
+  "$prompt"
+)
+printf -v quoted_codex_args ' %q' "${codex_args[@]}"
+codex_command="exec codex$quoted_codex_args"
+
+printf -v quoted_codex_missing '%q' "ERROR: codex not installed or not on PATH"
+inner_command="if ! command -v codex >/dev/null 2>&1; then printf '%s\n' $quoted_codex_missing > $quoted_startup_fifo; exit 127; fi; printf '%s\n' READY > $quoted_startup_fifo || exit 1; $codex_command"
+printf -v quoted_inner_command '%q' "$inner_command"
+
+if [ -z "$remote_shell" ]; then
+  remote_shell="\${SHELL:-/bin/sh}"
+else
+  printf -v remote_shell '%q' "$remote_shell"
+fi
+
+printf -v quoted_cd_error '%q' "ERROR: failed to cd to $remote_dir_label"
+remote_payload="tmux set-window-option remain-on-exit off >/dev/null 2>&1 || true; if ! cd $quoted_remote_dir; then printf '%s\n' $quoted_cd_error > $quoted_startup_fifo; exit 1; fi; exec $remote_shell -lic $quoted_inner_command"
+printf -v quoted_remote_payload '%q' "$remote_payload"
+
+printf -v quoted_tmux_missing '%q' "codex_exec: tmux not installed or not on PATH"
+printf -v quoted_fifo_exists '%q' "codex_exec: startup fifo already exists: $startup_fifo"
+printf -v quoted_timeout '%q' "ERROR: timed out waiting for codex startup"
+remote_command="if ! command -v tmux >/dev/null 2>&1; then echo $quoted_tmux_missing >&2; exit 127; fi; if [ -e $quoted_startup_fifo ]; then echo $quoted_fifo_exists >&2; exit 1; fi; if ! mkfifo $quoted_startup_fifo; then exit 1; fi; tmux new-session -d -s $quoted_session_name $quoted_remote_payload </dev/null >/dev/null 2>&1; tmux_status=\$?; if [ \"\$tmux_status\" -ne 0 ]; then rm -f $quoted_startup_fifo; echo 'codex_exec: failed to start tmux session' >&2; exit \"\$tmux_status\"; fi; ( sleep 60; printf '%s\n' $quoted_timeout > $quoted_startup_fifo 2>/dev/null || true ) </dev/null >/dev/null 2>&1 & watchdog=\$!; IFS= read -r startup_status < $quoted_startup_fifo; read_status=\$?; rm -f $quoted_startup_fifo; kill \"\$watchdog\" 2>/dev/null || true; wait \"\$watchdog\" 2>/dev/null || true; if [ \"\$read_status\" -ne 0 ]; then echo 'codex_exec: failed to read startup status' >&2; exit 1; fi; case \"\$startup_status\" in READY) exit 0 ;; ERROR:*) echo \"codex_exec: \${startup_status#ERROR: }\" >&2; exit 1 ;; *) echo \"codex_exec: unexpected startup status: \$startup_status\" >&2; exit 1 ;; esac"
+
+set +e
+# shellcheck disable=SC2029
+ssh "${ssh_args[@]}" "$remote_command"
+status=$?
+set -e
+
+if [ "$status" -ne 0 ]; then
+  exit "$status"
+fi
+
+printf -v quoted_attach_command '%q' "tmux attach -t $session_name"
+attach_command="ssh -t"
+for arg in "${ssh_args[@]}"; do
+  printf -v quoted_arg ' %q' "$arg"
+  attach_command+="$quoted_arg"
+done
+attach_command+=" $quoted_attach_command"
+
+echo "Started remote Codex exec session: $session_name"
+echo "Attach: $attach_command"

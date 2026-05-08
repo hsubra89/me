@@ -1,0 +1,550 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+command_name="codex-teleport"
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+git_root="$(git -C "$script_dir" rev-parse --show-toplevel)"
+remote_file="${CODEX_REMOTE_FILE:-$script_dir/remote-server.md}"
+repo_name="$(basename "$git_root")"
+remote_dir="${CODEX_REMOTE_DIR:-}"
+codex_home="${CODEX_HOME:-$HOME/.codex}"
+remote_codex_home="${CODEX_REMOTE_CODEX_HOME:-~/.codex}"
+thread_id="${CODEX_THREAD_ID:-}"
+explicit_thread_id=0
+use_last=0
+dry_run=0
+
+usage() {
+  cat <<'USAGE'
+Usage: codex-teleport [--thread THREAD_ID | THREAD_ID] [--last] [--dry-run]
+
+Copies a local Codex conversation rollout to the SSH host listed in
+remote-server.md. Defaults THREAD_ID to CODEX_THREAD_ID, which Codex exposes
+inside an active conversation.
+
+Before copying, validates that the local checkout is clean and the remote
+checkout is clean. If the remote checkout is on a different branch or commit,
+it attempts to switch/fast-forward it to the local branch and HEAD commit.
+
+Options:
+  --thread THREAD_ID       Codex thread/session id to copy
+  --last                   Copy the newest local rollout under CODEX_HOME/sessions
+  --dir REMOTE_DIR         Remote repo directory, default: $HOME/projects/<repo>
+  --codex-home DIR         Local Codex home, default: ${CODEX_HOME:-$HOME/.codex}
+  --remote-codex-home DIR  Remote Codex home, default: ~/.codex
+  --dry-run                Print what would be copied without connecting
+  -h, --help               Show this help
+
+Environment:
+  CODEX_REMOTE_FILE        Path to file containing an ssh command or user@host target
+  CODEX_REMOTE_DIR         Directory of the remote repo checkout
+  CODEX_REMOTE_CODEX_HOME  Remote Codex home, default: ~/.codex
+  CODEX_THREAD_ID          Active Codex thread id
+USAGE
+}
+
+die() {
+  echo "$command_name: $*" >&2
+  exit 1
+}
+
+is_uuid() {
+  [[ "$1" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]
+}
+
+quote_remote_path() {
+  case "$1" in
+    [~])
+      printf '~'
+      ;;
+    [~]/*)
+      local rest="${1#\~/}"
+      local quoted_rest
+      printf -v quoted_rest '%q' "$rest"
+      printf '%s/%s' '~' "$quoted_rest"
+      ;;
+    *)
+      printf '%q' "$1"
+      ;;
+  esac
+}
+
+parse_remote_line() {
+  local input="$1"
+  local token=""
+  local state="normal"
+  local char
+  local next
+  local i=0
+  local len="${#input}"
+  local in_token=0
+
+  remote_parts=()
+
+  while [ "$i" -lt "$len" ]; do
+    char="${input:i:1}"
+
+    case "$state" in
+      normal)
+        case "$char" in
+          [[:space:]])
+            if [ "$in_token" -eq 1 ]; then
+              remote_parts+=("$token")
+              token=""
+              in_token=0
+            fi
+            ;;
+          "'")
+            state="single"
+            in_token=1
+            ;;
+          '"')
+            state="double"
+            in_token=1
+            ;;
+          "\\")
+            in_token=1
+            i=$((i + 1))
+            if [ "$i" -ge "$len" ]; then
+              die "trailing backslash in $remote_file"
+            fi
+            token+="${input:i:1}"
+            ;;
+          *)
+            token+="$char"
+            in_token=1
+            ;;
+        esac
+        ;;
+      single)
+        if [ "$char" = "'" ]; then
+          state="normal"
+        else
+          token+="$char"
+        fi
+        ;;
+      double)
+        case "$char" in
+          '"')
+            state="normal"
+            ;;
+          "\\")
+            i=$((i + 1))
+            if [ "$i" -ge "$len" ]; then
+              token+="\\"
+            else
+              next="${input:i:1}"
+              case "$next" in
+                '"'|"\\"|'$'|'`')
+                  token+="$next"
+                  ;;
+                *)
+                  token+="\\$next"
+                  ;;
+              esac
+            fi
+            ;;
+          *)
+            token+="$char"
+            ;;
+        esac
+        ;;
+    esac
+
+    i=$((i + 1))
+  done
+
+  case "$state" in
+    single)
+      die "unterminated single quote in $remote_file"
+      ;;
+    double)
+      die "unterminated double quote in $remote_file"
+      ;;
+  esac
+
+  if [ "$in_token" -eq 1 ]; then
+    remote_parts+=("$token")
+  fi
+}
+
+canonical_file_path() {
+  local path="$1"
+  local dir
+  local base
+  dir="$(cd -- "$(dirname -- "$path")" && pwd -P)"
+  base="$(basename -- "$path")"
+  printf '%s/%s\n' "$dir" "$base"
+}
+
+find_rollout_by_id() {
+  local id="$1"
+  local path=""
+  local state_db="$codex_home_abs/state_5.sqlite"
+
+  if command -v sqlite3 >/dev/null 2>&1 && [ -f "$state_db" ]; then
+    path="$(sqlite3 "$state_db" "select rollout_path from threads where id = '$id' limit 1;" 2>/dev/null || true)"
+    if [ -n "$path" ] && [ -f "$path" ]; then
+      canonical_file_path "$path"
+      return 0
+    fi
+  fi
+
+  path="$(find "$codex_home_abs/sessions" -type f -name "*$id*.jsonl" -print 2>/dev/null | sort | tail -n 1 || true)"
+  if [ -n "$path" ] && [ -f "$path" ]; then
+    canonical_file_path "$path"
+    return 0
+  fi
+
+  return 1
+}
+
+find_latest_rollout() {
+  local path
+  path="$(find "$codex_home_abs/sessions" -type f -name 'rollout-*.jsonl' -print 2>/dev/null | sort | tail -n 1 || true)"
+  if [ -n "$path" ] && [ -f "$path" ]; then
+    canonical_file_path "$path"
+    return 0
+  fi
+
+  return 1
+}
+
+extract_thread_id_from_rollout() {
+  local path="$1"
+  local base="${path##*/}"
+  local stem="${base%.jsonl}"
+  local id="${stem: -36}"
+
+  if is_uuid "$id"; then
+    printf '%s\n' "$id"
+    return 0
+  fi
+
+  return 1
+}
+
+describe_branch() {
+  if [ -n "$1" ]; then
+    printf '%s\n' "$1"
+  else
+    printf 'detached HEAD\n'
+  fi
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    --thread)
+      if [ "$#" -lt 2 ]; then
+        die "--thread requires a thread id"
+      fi
+      if [ "$explicit_thread_id" -eq 1 ]; then
+        die "multiple thread ids provided"
+      fi
+      thread_id="$2"
+      explicit_thread_id=1
+      shift 2
+      ;;
+    --last)
+      use_last=1
+      shift
+      ;;
+    --codex-home)
+      if [ "$#" -lt 2 ]; then
+        die "--codex-home requires a directory"
+      fi
+      codex_home="$2"
+      shift 2
+      ;;
+    --dir)
+      if [ "$#" -lt 2 ]; then
+        die "--dir requires a remote directory"
+      fi
+      remote_dir="$2"
+      shift 2
+      ;;
+    --remote-codex-home)
+      if [ "$#" -lt 2 ]; then
+        die "--remote-codex-home requires a directory"
+      fi
+      remote_codex_home="$2"
+      shift 2
+      ;;
+    --dry-run)
+      dry_run=1
+      shift
+      ;;
+    --)
+      shift
+      if [ "$#" -gt 0 ]; then
+        if [ "$#" -gt 1 ]; then
+          die "unexpected arguments: $*"
+        fi
+        if [ "$explicit_thread_id" -eq 1 ]; then
+          die "multiple thread ids provided"
+        fi
+        thread_id="$1"
+        explicit_thread_id=1
+      fi
+      break
+      ;;
+    -*)
+      die "unknown option: $1"
+      ;;
+    *)
+      if [ "$explicit_thread_id" -eq 1 ]; then
+        die "multiple thread ids provided"
+      fi
+      thread_id="$1"
+      explicit_thread_id=1
+      shift
+      ;;
+  esac
+done
+
+if [ ! -d "$codex_home" ]; then
+  die "missing local Codex home: $codex_home"
+fi
+codex_home_abs="$(cd -- "$codex_home" && pwd -P)"
+
+if ! git -C "$git_root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  die "local path is not a git work tree: $git_root"
+fi
+
+local_head="$(git -C "$git_root" rev-parse HEAD)"
+local_branch="$(git -C "$git_root" symbolic-ref --short HEAD 2>/dev/null || true)"
+local_status="$(git -C "$git_root" status --porcelain=v1 --untracked-files=all)"
+if [ -n "$local_status" ]; then
+  echo "$command_name: local work tree is not clean: $git_root" >&2
+  printf '%s\n' "$local_status" >&2
+  exit 1
+fi
+
+if [ "$use_last" -eq 1 ]; then
+  source_path="$(find_latest_rollout)" || die "no rollout files found under $codex_home_abs/sessions"
+  thread_id="$(extract_thread_id_from_rollout "$source_path")" || die "could not parse thread id from $source_path"
+else
+  if [ -z "$thread_id" ]; then
+    die "no thread id provided; run inside Codex or pass --thread THREAD_ID"
+  fi
+
+  if ! is_uuid "$thread_id"; then
+    die "thread id must be a UUID: $thread_id"
+  fi
+
+  source_path="$(find_rollout_by_id "$thread_id")" || die "could not find rollout for thread $thread_id under $codex_home_abs/sessions"
+fi
+
+case "$source_path" in
+  "$codex_home_abs"/*)
+    relative_path="${source_path#"$codex_home_abs"/}"
+    ;;
+  *)
+    die "rollout path is outside Codex home: $source_path"
+    ;;
+esac
+
+if [ ! -f "$remote_file" ]; then
+  die "missing remote file: $remote_file"
+fi
+
+remote_line="$(
+  sed -n \
+    -e 's/^[[:space:]]*//' \
+    -e 's/[[:space:]]*$//' \
+    -e '/^$/d' \
+    -e '/^#/d' \
+    -e 'p' \
+    -e 'q' \
+    "$remote_file"
+)"
+
+if [ -z "$remote_line" ]; then
+  die "no SSH target found in $remote_file"
+fi
+
+parse_remote_line "$remote_line"
+if [ "${#remote_parts[@]}" -eq 0 ]; then
+  die "no SSH target found in $remote_file"
+fi
+
+if [ "${remote_parts[0]}" = "ssh" ]; then
+  ssh_args=("${remote_parts[@]:1}")
+else
+  ssh_args=("${remote_parts[@]}")
+fi
+
+if [ -z "$remote_dir" ]; then
+  printf -v quoted_repo_name '%q' "$repo_name"
+  quoted_remote_repo_dir="\$HOME/projects/$quoted_repo_name"
+  remote_dir_label="\$HOME/projects/$repo_name"
+else
+  quoted_remote_repo_dir="$(quote_remote_path "$remote_dir")"
+  remote_dir_label="$remote_dir"
+fi
+
+remote_dest="${remote_codex_home%/}/$relative_path"
+remote_dest_dir="$(dirname -- "$remote_dest")"
+remote_tmp="$remote_dest.tmp.$(date +%Y%m%d%H%M%S).$$"
+quoted_remote_dest="$(quote_remote_path "$remote_dest")"
+quoted_remote_dest_dir="$(quote_remote_path "$remote_dest_dir")"
+quoted_remote_tmp="$(quote_remote_path "$remote_tmp")"
+printf -v quoted_local_branch '%q' "$local_branch"
+printf -v quoted_local_head '%q' "$local_head"
+remote_copy="umask 077 && mkdir -p $quoted_remote_dest_dir && cat > $quoted_remote_tmp && mv $quoted_remote_tmp $quoted_remote_dest"
+remote_preflight="$(cat <<REMOTE
+local_branch=$quoted_local_branch
+local_head=$quoted_local_head
+
+describe_branch() {
+  if [ -n "\$1" ]; then
+    printf '%s\n' "\$1"
+  else
+    printf 'detached HEAD\n'
+  fi
+}
+
+fail_alignment() {
+  echo "$command_name: \$1: $remote_dir_label" >&2
+  exit 1
+}
+
+ensure_commit() {
+  if git -C $quoted_remote_repo_dir cat-file -e "\$local_head^{commit}" 2>/dev/null; then
+    return 0
+  fi
+
+  if ! git -C $quoted_remote_repo_dir fetch --all --prune; then
+    fail_alignment "failed to fetch remote refs"
+  fi
+
+  if ! git -C $quoted_remote_repo_dir cat-file -e "\$local_head^{commit}" 2>/dev/null; then
+    fail_alignment "local HEAD is not available on remote"
+  fi
+}
+
+if ! git -C $quoted_remote_repo_dir rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  fail_alignment "remote path is not a git work tree"
+fi
+
+if ! status=\$(git -C $quoted_remote_repo_dir status --porcelain=v1 --untracked-files=all); then
+  fail_alignment "failed to inspect remote work tree"
+fi
+
+if [ -n "\$status" ]; then
+  echo "$command_name: remote work tree is not clean: $remote_dir_label" >&2
+  printf '%s\n' "\$status" >&2
+  exit 1
+fi
+
+remote_branch=\$(git -C $quoted_remote_repo_dir symbolic-ref --short HEAD 2>/dev/null || true)
+remote_head=\$(git -C $quoted_remote_repo_dir rev-parse HEAD)
+
+if [ "\$remote_branch" != "\$local_branch" ] || [ "\$remote_head" != "\$local_head" ]; then
+  echo "$command_name: aligning remote checkout to \$(describe_branch "\$local_branch") @ \$local_head" >&2
+
+  if [ -n "\$local_branch" ]; then
+    if git -C $quoted_remote_repo_dir show-ref --verify --quiet "refs/heads/\$local_branch"; then
+      if ! git -C $quoted_remote_repo_dir switch "\$local_branch" >/dev/null; then
+        fail_alignment "failed to switch to local branch"
+      fi
+    else
+      if ! git -C $quoted_remote_repo_dir fetch --all --prune; then
+        fail_alignment "failed to fetch remote refs"
+      fi
+
+      if git -C $quoted_remote_repo_dir show-ref --verify --quiet "refs/heads/\$local_branch"; then
+        if ! git -C $quoted_remote_repo_dir switch "\$local_branch" >/dev/null; then
+          fail_alignment "failed to switch to local branch"
+        fi
+      elif git -C $quoted_remote_repo_dir show-ref --verify --quiet "refs/remotes/origin/\$local_branch"; then
+        if ! git -C $quoted_remote_repo_dir switch --track -c "\$local_branch" "origin/\$local_branch" >/dev/null; then
+          fail_alignment "failed to create local branch from origin"
+        fi
+      else
+        ensure_commit
+        if ! git -C $quoted_remote_repo_dir switch -c "\$local_branch" "\$local_head" >/dev/null; then
+          fail_alignment "failed to create local branch at local HEAD"
+        fi
+      fi
+    fi
+
+    ensure_commit
+    remote_head=\$(git -C $quoted_remote_repo_dir rev-parse HEAD)
+    if [ "\$remote_head" != "\$local_head" ]; then
+      if ! git -C $quoted_remote_repo_dir merge --ff-only "\$local_head" >/dev/null; then
+        echo "$command_name: remote branch cannot fast-forward to local HEAD: $remote_dir_label" >&2
+        printf 'local:  %s @ %s\n' "\$(describe_branch "\$local_branch")" "\$local_head" >&2
+        printf 'remote: %s @ %s\n' "\$(describe_branch "\$(git -C $quoted_remote_repo_dir symbolic-ref --short HEAD 2>/dev/null || true)")" "\$remote_head" >&2
+        exit 1
+      fi
+    fi
+  else
+    ensure_commit
+    if ! git -C $quoted_remote_repo_dir switch --detach "\$local_head" >/dev/null; then
+      fail_alignment "failed to detach at local HEAD"
+    fi
+  fi
+fi
+
+remote_branch=\$(git -C $quoted_remote_repo_dir symbolic-ref --short HEAD 2>/dev/null || true)
+remote_head=\$(git -C $quoted_remote_repo_dir rev-parse HEAD)
+
+if [ "\$remote_branch" != "\$local_branch" ]; then
+  echo "$command_name: remote branch does not match local: $remote_dir_label" >&2
+  printf 'local:  %s\n' "\$(describe_branch "\$local_branch")" >&2
+  printf 'remote: %s\n' "\$(describe_branch "\$remote_branch")" >&2
+  exit 1
+fi
+
+if [ "\$remote_head" != "\$local_head" ]; then
+  echo "$command_name: remote HEAD does not match local: $remote_dir_label" >&2
+  printf 'local:  %s\n' "\$local_head" >&2
+  printf 'remote: %s\n' "\$remote_head" >&2
+  exit 1
+fi
+
+if ! status=\$(git -C $quoted_remote_repo_dir status --porcelain=v1 --untracked-files=all); then
+  fail_alignment "failed to inspect remote work tree"
+fi
+
+if [ -n "\$status" ]; then
+  echo "$command_name: remote work tree is not clean after alignment: $remote_dir_label" >&2
+  printf '%s\n' "\$status" >&2
+  exit 1
+fi
+REMOTE
+)"
+remote_command="$remote_preflight
+$remote_copy"
+
+if [ "$dry_run" -eq 1 ]; then
+  echo "Thread: $thread_id"
+  echo "Local:  $source_path"
+  echo "Repo:   $(describe_branch "$local_branch") @ $local_head"
+  echo "Check:  ${ssh_args[*]}:$remote_dir_label must be clean; if needed, it will be fast-forwarded/switched to match local branch/HEAD"
+  echo "Remote: ${ssh_args[*]}:$remote_dest"
+  echo
+  echo "Would run:"
+  printf '  ssh'
+  printf ' %q' "${ssh_args[@]}"
+  printf ' %q < %q\n' "$remote_command" "$source_path"
+else
+  ssh "${ssh_args[@]}" "$remote_command" < "$source_path"
+  echo "Copied Codex thread $thread_id"
+  echo "Local:  $source_path"
+  echo "Repo:   $(describe_branch "$local_branch") @ $local_head"
+  echo "Remote: ${ssh_args[*]}:$remote_dest"
+fi
+
+printf -v quoted_thread_id '%q' "$thread_id"
+echo
+echo "Resume from this repo:"
+echo "  ./me/codex-remote resume $quoted_thread_id"
+echo
+echo "Resume on the remote host:"
+echo "  codex resume $quoted_thread_id"
