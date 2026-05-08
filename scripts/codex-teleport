@@ -4,7 +4,8 @@ set -euo pipefail
 command_name="codex-teleport"
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 git_root="$(git -C "$script_dir" rev-parse --show-toplevel)"
-remote_file="${CODEX_REMOTE_FILE:-$script_dir/remote-ssh.txt}"
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+remote_file="${CODEX_REMOTE_FILE:-$config_home/codex-remote/remote-ssh.txt}"
 repo_name="$(basename "$git_root")"
 remote_dir="${CODEX_REMOTE_DIR:-}"
 codex_home="${CODEX_HOME:-$HOME/.codex}"
@@ -36,7 +37,8 @@ Options:
   -h, --help               Show this help
 
 Environment:
-  CODEX_REMOTE_FILE        Path to file containing an ssh command or user@host target
+  CODEX_REMOTE_FILE        Path to file containing an ssh command or user@host target,
+                           default: ${XDG_CONFIG_HOME:-$HOME/.config}/codex-remote/remote-ssh.txt
   CODEX_REMOTE_DIR         Directory of the remote repo checkout
   CODEX_REMOTE_CODEX_HOME  Remote Codex home, default: ~/.codex
   CODEX_THREAD_ID          Active Codex thread id
@@ -534,6 +536,7 @@ if [ "$dry_run" -eq 1 ]; then
   printf ' %q' "${ssh_args[@]}"
   printf ' %q < %q\n' "$remote_command" "$source_path"
 else
+  # shellcheck disable=SC2029
   ssh "${ssh_args[@]}" "$remote_command" < "$source_path"
   echo "Copied Codex thread $thread_id"
   echo "Local:  $source_path"

@@ -3,7 +3,8 @@ set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 git_root="$(git -C "$script_dir" rev-parse --show-toplevel)"
-remote_file="${CODEX_REMOTE_FILE:-$script_dir/remote-ssh.txt}"
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+remote_file="${CODEX_REMOTE_FILE:-$config_home/codex-remote/remote-ssh.txt}"
 repo_name="$(basename "$git_root")"
 remote_dir="${CODEX_REMOTE_DIR:-}"
 remote_shell="${CODEX_REMOTE_SHELL:-}"
@@ -17,7 +18,8 @@ Starts `codex exec` on the SSH host listed in remote-ssh.txt inside a
 detached remote tmux session. The local command returns after Codex launches.
 
 Environment:
-  CODEX_REMOTE_FILE          Path to file containing an ssh command or user@host target
+  CODEX_REMOTE_FILE          Path to file containing an ssh command or user@host target,
+                             default: ${XDG_CONFIG_HOME:-$HOME/.config}/codex-remote/remote-ssh.txt
   CODEX_REMOTE_DIR           Directory to cd into on the remote host
   CODEX_REMOTE_SHELL         Remote shell used to load PATH, default: ${SHELL:-/bin/sh}
   CODEX_EXEC_SESSION_PREFIX  tmux session prefix, default: codex-exec-<repo>

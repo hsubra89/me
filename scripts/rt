@@ -1,0 +1,397 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+command_name="rt"
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+context_dir="${RT_CONTEXT_DIR:-$PWD}"
+remote_dir="${CODEX_REMOTE_DIR:-}"
+remote_shell="${CODEX_REMOTE_SHELL:-}"
+dry_run=0
+
+usage() {
+  cat <<'USAGE'
+Usage: rt [--dir REMOTE_DIR] [--session NAME] [--shell SHELL] [--dry-run]
+
+Opens the current git project on the SSH host listed in remote-ssh.txt.
+If the remote checkout does not exist, rt clones it, checks out the same
+commit as the local checkout, rsyncs local git-visible edits, and attaches
+to a tmux shell in the remote project.
+
+Options:
+  --dir REMOTE_DIR    Remote project directory, default: $HOME/projects/<repo>
+  --session NAME      tmux session name, default: rt-<repo>
+  --shell SHELL       Remote shell, default: ${SHELL:-/bin/sh}
+  --dry-run           Print actions without connecting
+  -h, --help          Show this help
+
+Environment:
+  CODEX_REMOTE_FILE   Path to file containing an ssh command or user@host target,
+                      default: ${XDG_CONFIG_HOME:-$HOME/.config}/codex-remote/remote-ssh.txt
+  CODEX_REMOTE_DIR    Remote project directory
+  CODEX_REMOTE_SHELL  Remote shell used for the tmux shell
+  RT_CONTEXT_DIR      Local directory used to find the current git project
+  RT_SESSION          tmux session name, default: rt-<repo>
+USAGE
+}
+
+die() {
+  echo "$command_name: $*" >&2
+  exit 1
+}
+
+quote_remote_path() {
+  case "$1" in
+    [~])
+      printf '~'
+      ;;
+    [~]/*)
+      local rest="${1#\~/}"
+      local quoted_rest
+      printf -v quoted_rest '%q' "$rest"
+      printf '%s/%s' '~' "$quoted_rest"
+      ;;
+    *)
+      printf '%q' "$1"
+      ;;
+  esac
+}
+
+parse_remote_line() {
+  local input="$1"
+  local token=""
+  local state="normal"
+  local char
+  local next
+  local i=0
+  local len="${#input}"
+  local in_token=0
+
+  remote_parts=()
+
+  while [ "$i" -lt "$len" ]; do
+    char="${input:i:1}"
+
+    case "$state" in
+      normal)
+        case "$char" in
+          [[:space:]])
+            if [ "$in_token" -eq 1 ]; then
+              remote_parts+=("$token")
+              token=""
+              in_token=0
+            fi
+            ;;
+          "'")
+            state="single"
+            in_token=1
+            ;;
+          '"')
+            state="double"
+            in_token=1
+            ;;
+          "\\")
+            in_token=1
+            i=$((i + 1))
+            if [ "$i" -ge "$len" ]; then
+              die "trailing backslash in $remote_file"
+            fi
+            token+="${input:i:1}"
+            ;;
+          *)
+            token+="$char"
+            in_token=1
+            ;;
+        esac
+        ;;
+      single)
+        if [ "$char" = "'" ]; then
+          state="normal"
+        else
+          token+="$char"
+        fi
+        ;;
+      double)
+        case "$char" in
+          '"')
+            state="normal"
+            ;;
+          "\\")
+            i=$((i + 1))
+            if [ "$i" -ge "$len" ]; then
+              token+="\\"
+            else
+              next="${input:i:1}"
+              case "$next" in
+                '"'|"\\"|'$'|'`')
+                  token+="$next"
+                  ;;
+                *)
+                  token+="\\$next"
+                  ;;
+              esac
+            fi
+            ;;
+          *)
+            token+="$char"
+            ;;
+        esac
+        ;;
+    esac
+
+    i=$((i + 1))
+  done
+
+  case "$state" in
+    single)
+      die "unterminated single quote in $remote_file"
+      ;;
+    double)
+      die "unterminated double quote in $remote_file"
+      ;;
+  esac
+
+  if [ "$in_token" -eq 1 ]; then
+    remote_parts+=("$token")
+  fi
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    --dir)
+      if [ "$#" -lt 2 ]; then
+        die "--dir requires a remote directory"
+      fi
+      remote_dir="$2"
+      shift 2
+      ;;
+    --session)
+      if [ "$#" -lt 2 ]; then
+        die "--session requires a name"
+      fi
+      RT_SESSION="$2"
+      shift 2
+      ;;
+    --shell)
+      if [ "$#" -lt 2 ]; then
+        die "--shell requires a remote shell path"
+      fi
+      remote_shell="$2"
+      shift 2
+      ;;
+    --dry-run)
+      dry_run=1
+      shift
+      ;;
+    --)
+      shift
+      if [ "$#" -gt 0 ]; then
+        die "unexpected arguments: $*"
+      fi
+      break
+      ;;
+    -*)
+      die "unknown option: $1"
+      ;;
+    *)
+      die "unexpected argument: $1"
+      ;;
+  esac
+done
+
+if ! git -C "$context_dir" rev-parse --git-dir >/dev/null 2>&1; then
+  die "not inside a git repository: $context_dir"
+fi
+
+if git_root="$(git -C "$context_dir" rev-parse --show-toplevel 2>/dev/null)"; then
+  git_root="$(cd -- "$git_root" && pwd -P)"
+else
+  git_dir="$(git -C "$context_dir" rev-parse --git-dir)"
+  case "$git_dir" in
+    /*)
+      git_dir_abs="$(cd -- "$git_dir" && pwd -P)"
+      ;;
+    *)
+      git_dir_abs="$(cd -- "$context_dir/$git_dir" && pwd -P)"
+      ;;
+  esac
+
+  if [ "$(basename -- "$git_dir_abs")" != ".git" ]; then
+    die "git repository has no project directory to sync: $context_dir"
+  fi
+
+  git_root="$(dirname -- "$git_dir_abs")"
+fi
+repo_name="$(basename "$git_root")"
+session_name="${RT_SESSION:-rt-$repo_name}"
+
+remote_file="${CODEX_REMOTE_FILE:-}"
+if [ -z "$remote_file" ]; then
+  remote_file="$config_home/codex-remote/remote-ssh.txt"
+fi
+
+if [ ! -f "$remote_file" ]; then
+  die "missing remote file: $remote_file"
+fi
+
+remote_line="$(
+  sed -n \
+    -e 's/^[[:space:]]*//' \
+    -e 's/[[:space:]]*$//' \
+    -e '/^$/d' \
+    -e '/^#/d' \
+    -e 'p' \
+    -e 'q' \
+    "$remote_file"
+)"
+
+if [ -z "$remote_line" ]; then
+  die "no SSH target found in $remote_file"
+fi
+
+parse_remote_line "$remote_line"
+if [ "${#remote_parts[@]}" -eq 0 ]; then
+  die "no SSH target found in $remote_file"
+fi
+
+if [ "${remote_parts[0]}" = "ssh" ]; then
+  ssh_args=("${remote_parts[@]:1}")
+else
+  ssh_args=("${remote_parts[@]}")
+fi
+
+if [ "${#ssh_args[@]}" -eq 0 ]; then
+  die "no SSH target found in $remote_file"
+fi
+
+last_ssh_arg=$((${#ssh_args[@]} - 1))
+rsync_target="${ssh_args[$last_ssh_arg]}"
+rsync_ssh_command="ssh"
+if [ "$last_ssh_arg" -gt 0 ]; then
+  for arg in "${ssh_args[@]:0:$last_ssh_arg}"; do
+    printf -v quoted_arg '%q' "$arg"
+    rsync_ssh_command+=" $quoted_arg"
+  done
+fi
+
+local_head="$(git -C "$git_root" rev-parse HEAD)"
+local_branch="$(git -C "$git_root" symbolic-ref --short HEAD 2>/dev/null || true)"
+repo_url="$(git -C "$git_root" remote get-url origin 2>/dev/null || true)"
+
+if [ -z "$remote_dir" ]; then
+  printf -v quoted_repo_name '%q' "$repo_name"
+  quoted_remote_dir="\$HOME/projects/$quoted_repo_name"
+  remote_dir_label="\$HOME/projects/$repo_name"
+  quoted_rsync_remote_dir="projects/$quoted_repo_name"
+else
+  quoted_remote_dir="$(quote_remote_path "$remote_dir")"
+  remote_dir_label="$remote_dir"
+  quoted_rsync_remote_dir="$(quote_remote_path "$remote_dir")"
+fi
+
+printf -v quoted_repo_url '%q' "$repo_url"
+printf -v quoted_local_head '%q' "$local_head"
+printf -v quoted_local_branch '%q' "$local_branch"
+printf -v quoted_session_name '%q' "$session_name"
+printf -v quoted_remote_dir_label '%q' "$remote_dir_label"
+
+remote_setup="$(cat <<REMOTE
+set -e
+
+repo_url=$quoted_repo_url
+local_head=$quoted_local_head
+local_branch=$quoted_local_branch
+remote_dir_label=$quoted_remote_dir_label
+
+fail() {
+  echo "$command_name: \$*" >&2
+  exit 1
+}
+
+if ! command -v git >/dev/null 2>&1; then
+  fail "git is not installed on the remote host"
+fi
+
+if [ ! -e $quoted_remote_dir ]; then
+  if [ -z "\$repo_url" ]; then
+    fail "remote project is missing and local repo has no origin remote"
+  fi
+  mkdir -p "\$(dirname -- $quoted_remote_dir)"
+  git clone "\$repo_url" $quoted_remote_dir
+elif ! git -C $quoted_remote_dir rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  fail "remote path exists but is not a git work tree: \$remote_dir_label"
+fi
+
+if ! git -C $quoted_remote_dir cat-file -e "\$local_head^{commit}" 2>/dev/null; then
+  git -C $quoted_remote_dir fetch --all --prune
+fi
+
+if ! git -C $quoted_remote_dir cat-file -e "\$local_head^{commit}" 2>/dev/null; then
+  fail "local HEAD is not available on the remote checkout; push or fetch commit \$local_head first"
+fi
+
+git -C $quoted_remote_dir reset --hard >/dev/null
+git -C $quoted_remote_dir clean -fd >/dev/null
+
+if [ -n "\$local_branch" ]; then
+  if git -C $quoted_remote_dir show-ref --verify --quiet "refs/heads/\$local_branch"; then
+    git -C $quoted_remote_dir switch "\$local_branch" >/dev/null
+  elif git -C $quoted_remote_dir show-ref --verify --quiet "refs/remotes/origin/\$local_branch"; then
+    git -C $quoted_remote_dir switch --track -c "\$local_branch" "origin/\$local_branch" >/dev/null
+  else
+    git -C $quoted_remote_dir switch -c "\$local_branch" "\$local_head" >/dev/null
+  fi
+  git -C $quoted_remote_dir reset --hard "\$local_head" >/dev/null
+else
+  git -C $quoted_remote_dir switch --detach "\$local_head" >/dev/null
+fi
+
+git -C $quoted_remote_dir clean -fd >/dev/null
+REMOTE
+)"
+
+if [ "$dry_run" -eq 1 ]; then
+  echo "Local:  $git_root"
+  echo "Repo:   ${local_branch:-detached HEAD} @ $local_head"
+  echo "Remote: ${ssh_args[*]}:$remote_dir_label"
+  echo "Source: ${repo_url:-<no origin remote>}"
+  echo
+  echo "Would prepare remote checkout, rsync local git-visible edits, then attach tmux session: $session_name"
+  exit 0
+fi
+
+# shellcheck disable=SC2029
+ssh "${ssh_args[@]}" "$remote_setup"
+
+dirty_list="$(mktemp "${TMPDIR:-/tmp}/rt-dirty.XXXXXX")"
+trap 'rm -f "$dirty_list"' EXIT
+
+git -C "$git_root" diff --no-renames --name-only -z HEAD -- > "$dirty_list"
+git -C "$git_root" ls-files -z --others --exclude-standard >> "$dirty_list"
+
+if [ -s "$dirty_list" ]; then
+  rsync \
+    -a \
+    --from0 \
+    --files-from="$dirty_list" \
+    --delete-missing-args \
+    -e "$rsync_ssh_command" \
+    "$git_root"/ \
+    "$rsync_target:$quoted_rsync_remote_dir/"
+fi
+
+if [ -z "$remote_shell" ]; then
+  remote_shell="\${SHELL:-/bin/sh}"
+else
+  printf -v remote_shell '%q' "$remote_shell"
+fi
+
+remote_payload="cd $quoted_remote_dir && exec $remote_shell -l"
+printf -v quoted_remote_payload '%q' "$remote_payload"
+quoted_tmux_missing="$(printf '%q' "$command_name: tmux is not installed on the remote host")"
+remote_command="if ! command -v tmux >/dev/null 2>&1; then echo $quoted_tmux_missing >&2; exit 127; fi; tmux new -A -s $quoted_session_name $quoted_remote_payload"
+
+exec ssh -t "${ssh_args[@]}" "$remote_command"
