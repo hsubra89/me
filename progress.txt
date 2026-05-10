@@ -21,3 +21,11 @@
 - Server Type choices are filtered to non-deprecated x86 types explicitly available in the selected Location, labeled without prices, and default near 21 EUR monthly gross with the agreed tie-breaks.
 - If a selected Location has no eligible Server Types, `configure` returns to Location selection; declining creation saves no transient Personal Server choices.
 - Verified with `go test ./...` from `go/cli`.
+
+2026-05-10 - Completed Issue 4: Collect Personal Server creation inputs and confirmation.
+
+- Added Personal Server User normalization and prompting, DNS-label-style server name validation, confirmed non-empty sudo password collection, and SHA-512 crypt password hashing without saving or printing password material.
+- Added Git identity collection with global Git config preferred over repo-local fallback, and skipped-value reporting when `user.name` or `user.email` is unavailable.
+- Replaced the temporary create prompt with a full pre-create plan summary covering Location, Server Type, server name, Personal Server User, SSH/firewall/network details, remote project root, grouped install plan, Git identity, and maximum monthly gross EUR price or unavailable pricing.
+- Declining final confirmation still creates no cloud resources and saves no transient Personal Server choices; accepting still stops at the later creation slice.
+- Verified with `go test ./...` from `go/cli`.

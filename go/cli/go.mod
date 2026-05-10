@@ -4,6 +4,7 @@ go 1.26.2
 
 require (
 	charm.land/huh/v2 v2.0.3
+	github.com/GehirnInc/crypt v0.0.0-20230320061759-8cc1b52080c5
 	github.com/charmbracelet/x/term v0.2.2
 	github.com/hetznercloud/hcloud-go/v2 v2.40.0
 	github.com/pelletier/go-toml/v2 v2.3.1

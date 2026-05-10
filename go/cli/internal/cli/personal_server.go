@@ -2,14 +2,17 @@ package cli
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"io"
 	"math"
 	"os"
+	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/GehirnInc/crypt/sha512_crypt"
 	"github.com/hetznercloud/hcloud-go/v2/hcloud"
 )
 
@@ -80,9 +83,42 @@ type personalServerTypeChoice struct {
 	ServerType personalServerType
 }
 
+type personalServerCreationInputs struct {
+	User         string
+	ServerName   string
+	PasswordHash string
+	GitIdentity  personalServerGitIdentity
+}
+
+type personalServerCreationPlan struct {
+	Location          personalServerLocation
+	ServerType        personalServerType
+	User              string
+	ServerName        string
+	PasswordHash      string
+	GitIdentity       personalServerGitIdentity
+	RemoteProjectRoot string
+	SSHIdentityFile   string
+}
+
+type personalServerGitIdentity struct {
+	Name  string
+	Email string
+}
+
+type personalServerGitConfigScope string
+
+const (
+	personalServerGitConfigGlobal personalServerGitConfigScope = "global"
+	personalServerGitConfigLocal  personalServerGitConfigScope = "local"
+)
+
 type personalServerProvisioningGate struct {
-	newCloudClient func(token string) personalServerCloudClient
-	saveConfig     func(path string, cfg appConfig) error
+	newCloudClient     func(token string) personalServerCloudClient
+	saveConfig         func(path string, cfg appConfig) error
+	currentUsername    func() string
+	gitConfigValue     func(scope personalServerGitConfigScope, key string) (string, bool)
+	passwordSaltReader io.Reader
 }
 
 func (gate personalServerProvisioningGate) Configure(out io.Writer, appConfigPath string, cfg appConfig, prompter configurePrompter) error {
@@ -106,7 +142,7 @@ func (gate personalServerProvisioningGate) Configure(out io.Writer, appConfigPat
 	}
 
 	fmt.Fprintln(out, "Personal Server provisioning prerequisites are ready.")
-	return gate.previewPersonalServerCreation(out, token, prompter)
+	return gate.previewPersonalServerCreation(out, token, cfg, prompter)
 }
 
 func (gate personalServerProvisioningGate) verifyConfiguredPersonalServer(out io.Writer, appConfigPath string, cfg appConfig, token string, prompter configurePrompter) error {
@@ -135,7 +171,7 @@ func (gate personalServerProvisioningGate) verifyConfiguredPersonalServer(out io
 		}
 		fmt.Fprintln(out, "Cleared stale Personal Server Configuration.")
 		fmt.Fprintln(out, "Personal Server provisioning prerequisites are ready.")
-		return gate.previewPersonalServerCreation(out, token, prompter)
+		return gate.previewPersonalServerCreation(out, token, cfg, prompter)
 	}
 
 	fmt.Fprintf(out, "Personal Server already configured: server %d exists.\n", cfg.PersonalServer.ServerID)
@@ -144,7 +180,7 @@ func (gate personalServerProvisioningGate) verifyConfiguredPersonalServer(out io
 	return nil
 }
 
-func (gate personalServerProvisioningGate) previewPersonalServerCreation(out io.Writer, token string, prompter configurePrompter) error {
+func (gate personalServerProvisioningGate) previewPersonalServerCreation(out io.Writer, token string, cfg appConfig, prompter configurePrompter) error {
 	client, ok := gate.cloudClient(token).(personalServerPreviewCloudClient)
 	if !ok {
 		return fmt.Errorf("Personal Server preview requires a Hetzner client that can list Locations and Server Types")
@@ -192,6 +228,22 @@ func (gate personalServerProvisioningGate) previewPersonalServerCreation(out io.
 		fmt.Fprintf(out, "Selected Personal Server Location: %s\n", locationChoice.Location.Name)
 		fmt.Fprintf(out, "Selected Server Type: %s\n", serverTypeChoice.ServerType.Name)
 
+		inputs, err := gate.collectPersonalServerCreationInputs(prompter)
+		if err != nil {
+			return err
+		}
+		plan := personalServerCreationPlan{
+			Location:          locationChoice.Location,
+			ServerType:        serverTypeChoice.ServerType,
+			User:              inputs.User,
+			ServerName:        inputs.ServerName,
+			PasswordHash:      inputs.PasswordHash,
+			GitIdentity:       inputs.GitIdentity,
+			RemoteProjectRoot: cfg.Projects.RemoteRoot,
+			SSHIdentityFile:   cfg.SSH.IdentityFile,
+		}
+		writePersonalServerCreationPlan(out, plan)
+
 		create, err := prompter.Confirm("Create Personal Server?", false)
 		if err != nil {
 			return err
@@ -203,6 +255,272 @@ func (gate personalServerProvisioningGate) previewPersonalServerCreation(out io.
 
 		return fmt.Errorf("Personal Server creation is not implemented yet")
 	}
+}
+
+func (gate personalServerProvisioningGate) collectPersonalServerCreationInputs(prompter configurePrompter) (personalServerCreationInputs, error) {
+	defaultUser := normalizePersonalServerUser(gate.personalServerCurrentUsername())
+	user, err := prompter.Input("Personal Server User", defaultUser, validatePersonalServerUser)
+	if err != nil {
+		return personalServerCreationInputs{}, err
+	}
+
+	serverName, err := prompter.Input("Personal Server name", user+"-personal-server", validatePersonalServerName)
+	if err != nil {
+		return personalServerCreationInputs{}, err
+	}
+
+	passwordHash, err := collectPersonalServerPasswordHashWithReader(prompter, gate.personalServerPasswordSaltReader())
+	if err != nil {
+		return personalServerCreationInputs{}, err
+	}
+
+	return personalServerCreationInputs{
+		User:         user,
+		ServerName:   serverName,
+		PasswordHash: passwordHash,
+		GitIdentity:  gate.personalServerGitIdentity(),
+	}, nil
+}
+
+func (gate personalServerProvisioningGate) personalServerCurrentUsername() string {
+	if gate.currentUsername != nil {
+		return gate.currentUsername()
+	}
+	return currentOSUsername()
+}
+
+func normalizePersonalServerUser(input string) string {
+	value := strings.TrimSpace(input)
+	value = strings.TrimPrefix(value, `.\`)
+	if index := strings.LastIndexAny(value, `\/`); index >= 0 && index < len(value)-1 {
+		value = value[index+1:]
+	}
+	value = strings.ToLower(value)
+
+	var b strings.Builder
+	lastHyphen := false
+	for _, r := range value {
+		valid := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
+		if valid {
+			b.WriteRune(r)
+			lastHyphen = false
+			continue
+		}
+		if b.Len() > 0 && !lastHyphen {
+			b.WriteByte('-')
+			lastHyphen = true
+		}
+	}
+
+	normalized := strings.Trim(b.String(), "-")
+	if normalized == "" {
+		return ""
+	}
+	if normalized[0] >= '0' && normalized[0] <= '9' {
+		normalized = "user-" + normalized
+	}
+	if len(normalized) > 32 {
+		normalized = strings.TrimRight(normalized[:32], "-")
+	}
+	return normalized
+}
+
+func validatePersonalServerUser(input string) error {
+	value := strings.TrimSpace(input)
+	if value == "" {
+		return fmt.Errorf("Personal Server User is required")
+	}
+	if value != input {
+		return fmt.Errorf("Personal Server User must not have leading or trailing spaces")
+	}
+	if len(value) > 32 {
+		return fmt.Errorf("Personal Server User must be 32 characters or fewer")
+	}
+	if value[0] < 'a' || value[0] > 'z' {
+		return fmt.Errorf("Personal Server User must start with a lowercase letter")
+	}
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			continue
+		}
+		return fmt.Errorf("Personal Server User must use only lowercase letters, digits, and hyphens")
+	}
+	return nil
+}
+
+func validatePersonalServerName(input string) error {
+	value := strings.TrimSpace(input)
+	if value == "" {
+		return fmt.Errorf("Personal Server name is required")
+	}
+	if value != input {
+		return fmt.Errorf("Personal Server name must not have leading or trailing spaces")
+	}
+	if len(value) > 63 {
+		return fmt.Errorf("Personal Server name must be 63 characters or fewer")
+	}
+	if value[0] == '-' {
+		return fmt.Errorf("Personal Server name must start with a lowercase letter or digit")
+	}
+	if value[len(value)-1] == '-' {
+		return fmt.Errorf("Personal Server name must end with a lowercase letter or digit")
+	}
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			continue
+		}
+		return fmt.Errorf("Personal Server name must use only lowercase letters, digits, and hyphens")
+	}
+	return nil
+}
+
+func collectPersonalServerPasswordHash(prompter configurePrompter) (string, error) {
+	return collectPersonalServerPasswordHashWithReader(prompter, rand.Reader)
+}
+
+func collectPersonalServerPasswordHashWithReader(prompter configurePrompter, saltReader io.Reader) (string, error) {
+	password, err := prompter.Password("Personal Server User password")
+	if err != nil {
+		return "", err
+	}
+	if password == "" {
+		return "", fmt.Errorf("Personal Server User password is required")
+	}
+
+	confirmation, err := prompter.Password("Confirm Personal Server User password")
+	if err != nil {
+		return "", err
+	}
+	if confirmation != password {
+		return "", fmt.Errorf("Personal Server User password confirmation does not match")
+	}
+
+	return hashPersonalServerPassword(password, saltReader)
+}
+
+func (gate personalServerProvisioningGate) personalServerPasswordSaltReader() io.Reader {
+	if gate.passwordSaltReader != nil {
+		return gate.passwordSaltReader
+	}
+	return rand.Reader
+}
+
+func hashPersonalServerPassword(password string, saltReader io.Reader) (string, error) {
+	if password == "" {
+		return "", fmt.Errorf("Personal Server User password is required")
+	}
+	salt, err := randomPersonalServerPasswordSalt(saltReader, 16)
+	if err != nil {
+		return "", err
+	}
+	return sha512_crypt.New().Generate([]byte(password), []byte("$6$"+salt))
+}
+
+func randomPersonalServerPasswordSalt(reader io.Reader, length int) (string, error) {
+	if reader == nil {
+		reader = rand.Reader
+	}
+	const alphabet = "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+	const maxByte = 256 - (256 % len(alphabet))
+
+	out := make([]byte, length)
+	var one [1]byte
+	for i := range out {
+		for {
+			if _, err := io.ReadFull(reader, one[:]); err != nil {
+				return "", fmt.Errorf("generate password salt: %w", err)
+			}
+			if int(one[0]) >= maxByte {
+				continue
+			}
+			out[i] = alphabet[int(one[0])%len(alphabet)]
+			break
+		}
+	}
+	return string(out), nil
+}
+
+func (gate personalServerProvisioningGate) personalServerGitIdentity() personalServerGitIdentity {
+	name, _ := gate.firstPersonalServerGitConfigValue("user.name")
+	email, _ := gate.firstPersonalServerGitConfigValue("user.email")
+	return personalServerGitIdentity{
+		Name:  name,
+		Email: email,
+	}
+}
+
+func (gate personalServerProvisioningGate) firstPersonalServerGitConfigValue(key string) (string, bool) {
+	for _, scope := range []personalServerGitConfigScope{personalServerGitConfigGlobal, personalServerGitConfigLocal} {
+		value, ok := gate.personalServerGitConfigValue(scope, key)
+		if ok {
+			return value, true
+		}
+	}
+	return "", false
+}
+
+func (gate personalServerProvisioningGate) personalServerGitConfigValue(scope personalServerGitConfigScope, key string) (string, bool) {
+	if gate.gitConfigValue != nil {
+		return gate.gitConfigValue(scope, key)
+	}
+	return defaultPersonalServerGitConfigValue(scope, key)
+}
+
+func defaultPersonalServerGitConfigValue(scope personalServerGitConfigScope, key string) (string, bool) {
+	args := []string{"config"}
+	if scope == personalServerGitConfigGlobal {
+		args = append(args, "--global")
+	} else if scope == personalServerGitConfigLocal {
+		args = append(args, "--local")
+	}
+	args = append(args, "--get", key)
+
+	output, err := exec.Command("git", args...).Output()
+	if err != nil {
+		return "", false
+	}
+	value := strings.TrimSpace(string(output))
+	return value, value != ""
+}
+
+func writePersonalServerCreationPlan(out io.Writer, plan personalServerCreationPlan) {
+	fmt.Fprintln(out, "Personal Server plan:")
+	fmt.Fprintf(out, "Location: %s\n", plan.Location.Name)
+	fmt.Fprintf(out, "Server Type: %s\n", plan.ServerType.Name)
+	fmt.Fprintf(out, "Server name: %s\n", plan.ServerName)
+	fmt.Fprintf(out, "Personal Server User: %s\n", plan.User)
+	fmt.Fprintln(out, "SSH and network:")
+	fmt.Fprintf(out, "SSH key: ~/%s\n", plan.SSHIdentityFile)
+	fmt.Fprintln(out, "Firewall: me-personal-server (inbound SSH over IPv4 and IPv6)")
+	fmt.Fprintln(out, "Public network: IPv4 and IPv6 enabled")
+	fmt.Fprintf(out, "Remote project root: ~/%s\n", plan.RemoteProjectRoot)
+	fmt.Fprintln(out, "Install plan:")
+	fmt.Fprintln(out, "System services:")
+	fmt.Fprintln(out, "- security updates and unattended security upgrades")
+	fmt.Fprintln(out, "- Docker Engine and Docker Compose")
+	fmt.Fprintln(out, "- Personal Server User in docker group (root-equivalent access)")
+	fmt.Fprintln(out, "- Homebrew")
+	fmt.Fprintln(out, "Homebrew tools:")
+	fmt.Fprintln(out, "- tmux, jq, git, gh, rustup, go, nvm")
+	fmt.Fprintln(out, "Coding agents:")
+	fmt.Fprintln(out, "- Codex")
+	fmt.Fprintln(out, "- Claude Code")
+	fmt.Fprintln(out, "Git identity:")
+	writePersonalServerGitIdentityLine(out, "user.name", plan.GitIdentity.Name)
+	writePersonalServerGitIdentityLine(out, "user.email", plan.GitIdentity.Email)
+	if price, ok := personalServerTypeMonthlyGrossText(plan.ServerType, plan.Location.Name); ok {
+		fmt.Fprintf(out, "Maximum monthly price: %s EUR gross\n", price)
+	} else {
+		fmt.Fprintln(out, "Maximum monthly price: unavailable")
+	}
+}
+
+func writePersonalServerGitIdentityLine(out io.Writer, key string, value string) {
+	if strings.TrimSpace(value) == "" {
+		fmt.Fprintf(out, "- %s: skipped (not configured)\n", key)
+		return
+	}
+	fmt.Fprintf(out, "- %s: %s\n", key, value)
 }
 
 func personalServerLocationChoices(locations []personalServerLocation) []personalServerLocationChoice {
@@ -359,17 +677,29 @@ func betterPersonalServerTypeDefault(candidate personalServerType, current perso
 }
 
 func personalServerTypeMonthlyGross(serverType personalServerType, locationName string) (float64, bool) {
+	value, ok := personalServerTypeMonthlyGrossText(serverType, locationName)
+	if !ok {
+		return 0, false
+	}
+	price, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0, false
+	}
+	return price, true
+}
+
+func personalServerTypeMonthlyGrossText(serverType personalServerType, locationName string) (string, bool) {
 	for _, pricing := range serverType.Pricings {
 		if pricing.LocationName != locationName {
 			continue
 		}
-		value, err := strconv.ParseFloat(strings.TrimSpace(pricing.MonthlyGrossEUR), 64)
-		if err != nil {
-			return 0, false
+		value := strings.TrimSpace(pricing.MonthlyGrossEUR)
+		if _, err := strconv.ParseFloat(value, 64); err != nil {
+			return "", false
 		}
 		return value, true
 	}
-	return 0, false
+	return "", false
 }
 
 func personalServerTypeDedicated(serverType personalServerType) bool {

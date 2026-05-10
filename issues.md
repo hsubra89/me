@@ -23,6 +23,7 @@ These issues are written locally instead of being published to an issue tracker.
    - **User stories covered**: 12-24, 30-32
 
 4. **Collect Personal Server creation inputs and confirmation**
+   - **Status**: Done
    - **Type**: AFK
    - **Blocked by**: Issue 3
    - **User stories covered**: 28-29, 41-46, 68-71
@@ -132,6 +133,8 @@ The Server Type selector should use explicit Hetzner availability metadata, excl
 
 ## Issue 4: Collect Personal Server creation inputs and confirmation
 
+**Status**: Done
+
 ## What to build
 
 Complete the interactive pre-create flow by collecting the Personal Server User, server name, sudo password, local Git identity values, install plan, and final confirmation. The Personal Server User should be derived from the current local username as lowercase letters, digits, and hyphens, with a prompt fallback when normalization cannot produce a valid username. The server name should default to `<Personal Server User>-personal-server` and be validated locally as an API-safe DNS-label-style value.
@@ -140,17 +143,17 @@ The final confirmation should show the selected Location, selected Server Type, 
 
 ## Acceptance criteria
 
-- [ ] Personal Server User normalization handles uppercase, spaces, prefixes, invalid characters, leading digits, and empty normalized output.
-- [ ] Invalid normalized users cause an interactive prompt for a valid Personal Server User.
-- [ ] Server name defaults to `<Personal Server User>-personal-server`.
-- [ ] Server name validation catches invalid names before API creation.
-- [ ] Personal Server User password is prompted, confirmed, required to be non-empty, hashed locally as SHA-512 crypt, and never saved.
-- [ ] Available local Git identity values are read from global Git config first and repo-local Git config second.
-- [ ] Missing Git identity values are reported as skipped; available values are included for bootstrap.
-- [ ] The install plan is shown before final creation confirmation and grouped into system services, Homebrew tools, and coding agents.
-- [ ] Final confirmation shows one maximum monthly gross EUR total when pricing is available.
-- [ ] Final confirmation explicitly says price is unavailable when pricing cannot be fetched.
-- [ ] Declining final confirmation creates no cloud resources and saves no transient Personal Server choices.
+- [x] Personal Server User normalization handles uppercase, spaces, prefixes, invalid characters, leading digits, and empty normalized output.
+- [x] Invalid normalized users cause an interactive prompt for a valid Personal Server User.
+- [x] Server name defaults to `<Personal Server User>-personal-server`.
+- [x] Server name validation catches invalid names before API creation.
+- [x] Personal Server User password is prompted, confirmed, required to be non-empty, hashed locally as SHA-512 crypt, and never saved.
+- [x] Available local Git identity values are read from global Git config first and repo-local Git config second.
+- [x] Missing Git identity values are reported as skipped; available values are included for bootstrap.
+- [x] The install plan is shown before final creation confirmation and grouped into system services, Homebrew tools, and coding agents.
+- [x] Final confirmation shows one maximum monthly gross EUR total when pricing is available.
+- [x] Final confirmation explicitly says price is unavailable when pricing cannot be fetched.
+- [x] Declining final confirmation creates no cloud resources and saves no transient Personal Server choices.
 
 ## Blocked by
 
