@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"charm.land/huh/v2"
+	"github.com/charmbracelet/x/term"
 )
 
 type hetznerAuthPrompter interface {
@@ -121,6 +122,5 @@ func (huhPrompter) SelectSSHIdentity(choices []sshIdentityPromptChoice, selected
 }
 
 func isTerminal(file *os.File) bool {
-	stat, err := file.Stat()
-	return err == nil && stat.Mode()&os.ModeCharDevice != 0
+	return file != nil && term.IsTerminal(file.Fd())
 }
