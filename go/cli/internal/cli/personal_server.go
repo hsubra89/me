@@ -38,6 +38,7 @@ type personalServerPreviewCloudClient interface {
 	personalServerCloudClient
 	Locations(ctx context.Context) ([]personalServerLocation, error)
 	ServerTypes(ctx context.Context) ([]personalServerType, error)
+	Pricing(ctx context.Context) (personalServerPricing, error)
 }
 
 type personalServerCreateCloudClient interface {
@@ -147,6 +148,20 @@ type personalServerTypeLocationPricing struct {
 	MonthlyGrossEUR string
 }
 
+type personalServerPricing struct {
+	PrimaryIPs []personalServerPrimaryIPPricing
+}
+
+type personalServerPrimaryIPPricing struct {
+	Type     string
+	Pricings []personalServerPrimaryIPLocationPricing
+}
+
+type personalServerPrimaryIPLocationPricing struct {
+	LocationName    string
+	MonthlyGrossEUR string
+}
+
 type personalServerTypeChoice struct {
 	Label      string
 	ServerType personalServerType
@@ -160,14 +175,15 @@ type personalServerCreationInputs struct {
 }
 
 type personalServerCreationPlan struct {
-	Location          personalServerLocation
-	ServerType        personalServerType
-	User              string
-	ServerName        string
-	PasswordHash      string
-	GitIdentity       personalServerGitIdentity
-	RemoteProjectRoot string
-	SSHIdentityFile   string
+	Location                   personalServerLocation
+	ServerType                 personalServerType
+	User                       string
+	ServerName                 string
+	PasswordHash               string
+	GitIdentity                personalServerGitIdentity
+	RemoteProjectRoot          string
+	SSHIdentityFile            string
+	PrimaryIPv4MonthlyGrossEUR string
 }
 
 type personalServerGitIdentity struct {
@@ -265,7 +281,7 @@ func (gate personalServerProvisioningGate) verifyConfiguredPersonalServer(ctx co
 func (gate personalServerProvisioningGate) previewPersonalServerCreation(ctx context.Context, out io.Writer, appConfigPath string, token string, cfg appConfig, prompter configurePrompter) error {
 	client, ok := gate.cloudClient(token).(personalServerPreviewCloudClient)
 	if !ok {
-		return fmt.Errorf("Personal Server preview requires a Hetzner client that can list Locations and Server Types")
+		return fmt.Errorf("Personal Server preview requires a Hetzner client that can list Locations, Server Types, and Pricing")
 	}
 
 	locations, err := client.Locations(ctx)
@@ -283,6 +299,14 @@ func (gate personalServerProvisioningGate) previewPersonalServerCreation(ctx con
 	}
 	if !hasAnyEligiblePersonalServerType(serverTypes, locationChoices) {
 		return fmt.Errorf("no eligible Server Types are available in any Location")
+	}
+
+	pricing, err := client.Pricing(ctx)
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		pricing = personalServerPricing{}
 	}
 
 	defaultLocation := defaultPersonalServerLocationChoice(locationChoices)
@@ -323,6 +347,11 @@ func (gate personalServerProvisioningGate) previewPersonalServerCreation(ctx con
 			RemoteProjectRoot: cfg.Projects.RemoteRoot,
 			SSHIdentityFile:   cfg.SSH.IdentityFile,
 		}
+		plan.PrimaryIPv4MonthlyGrossEUR, _ = personalServerPrimaryIPMonthlyGrossText(
+			pricing,
+			string(hcloud.PrimaryIPTypeIPv4),
+			locationChoice.Location.Name,
+		)
 		writePersonalServerCreationPlan(out, plan)
 
 		create, err := prompter.Confirm("Create Personal Server?", false)
@@ -1141,7 +1170,7 @@ func writePersonalServerCreationPlan(out io.Writer, plan personalServerCreationP
 	fmt.Fprintln(out, "Git identity:")
 	writePersonalServerGitIdentityLine(out, "user.name", plan.GitIdentity.Name)
 	writePersonalServerGitIdentityLine(out, "user.email", plan.GitIdentity.Email)
-	if price, ok := personalServerTypeMonthlyGrossText(plan.ServerType, plan.Location.Name); ok {
+	if price, ok := personalServerCreationPlanMonthlyGrossText(plan); ok {
 		fmt.Fprintf(out, "Maximum monthly price: %s EUR gross\n", price)
 	} else {
 		fmt.Fprintln(out, "Maximum monthly price: unavailable")
@@ -1314,11 +1343,7 @@ func personalServerTypeMonthlyGross(serverType personalServerType, locationName 
 	if !ok {
 		return 0, false
 	}
-	price, err := strconv.ParseFloat(value, 64)
-	if err != nil {
-		return 0, false
-	}
-	return price, true
+	return parsePersonalServerMonthlyGrossEUR(value)
 }
 
 func personalServerTypeMonthlyGrossText(serverType personalServerType, locationName string) (string, bool) {
@@ -1327,12 +1352,58 @@ func personalServerTypeMonthlyGrossText(serverType personalServerType, locationN
 			continue
 		}
 		value := strings.TrimSpace(pricing.MonthlyGrossEUR)
-		if _, err := strconv.ParseFloat(value, 64); err != nil {
+		if _, ok := parsePersonalServerMonthlyGrossEUR(value); !ok {
 			return "", false
 		}
 		return value, true
 	}
 	return "", false
+}
+
+func personalServerCreationPlanMonthlyGrossText(plan personalServerCreationPlan) (string, bool) {
+	serverPrice, ok := personalServerTypeMonthlyGross(plan.ServerType, plan.Location.Name)
+	if !ok {
+		return "", false
+	}
+
+	primaryIPv4Price, ok := parsePersonalServerMonthlyGrossEUR(plan.PrimaryIPv4MonthlyGrossEUR)
+	if !ok {
+		return "", false
+	}
+
+	return formatPersonalServerMonthlyGrossEUR(serverPrice + primaryIPv4Price), true
+}
+
+func personalServerPrimaryIPMonthlyGrossText(pricing personalServerPricing, ipType string, locationName string) (string, bool) {
+	ipType = strings.TrimSpace(ipType)
+	for _, primaryIP := range pricing.PrimaryIPs {
+		if strings.TrimSpace(primaryIP.Type) != ipType {
+			continue
+		}
+		for _, locationPricing := range primaryIP.Pricings {
+			if locationPricing.LocationName != locationName {
+				continue
+			}
+			value := strings.TrimSpace(locationPricing.MonthlyGrossEUR)
+			if _, ok := parsePersonalServerMonthlyGrossEUR(value); !ok {
+				return "", false
+			}
+			return value, true
+		}
+	}
+	return "", false
+}
+
+func parsePersonalServerMonthlyGrossEUR(value string) (float64, bool) {
+	price, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+	if err != nil {
+		return 0, false
+	}
+	return price, true
+}
+
+func formatPersonalServerMonthlyGrossEUR(value float64) string {
+	return strconv.FormatFloat(value, 'f', 2, 64)
 }
 
 func personalServerTypeDedicated(serverType personalServerType) bool {
@@ -1473,6 +1544,32 @@ func (client hcloudPersonalServerCloudClient) ServerTypes(ctx context.Context) (
 		})
 	}
 	return result, nil
+}
+
+func (client hcloudPersonalServerCloudClient) Pricing(ctx context.Context) (personalServerPricing, error) {
+	pricing, _, err := client.client.Pricing.Get(ctx)
+	if err != nil {
+		return personalServerPricing{}, err
+	}
+	return personalServerPricingFromHcloud(pricing), nil
+}
+
+func personalServerPricingFromHcloud(pricing hcloud.Pricing) personalServerPricing {
+	primaryIPs := make([]personalServerPrimaryIPPricing, 0, len(pricing.PrimaryIPs))
+	for _, primaryIP := range pricing.PrimaryIPs {
+		primaryIPPricing := personalServerPrimaryIPPricing{
+			Type:     primaryIP.Type,
+			Pricings: make([]personalServerPrimaryIPLocationPricing, 0, len(primaryIP.Pricings)),
+		}
+		for _, price := range primaryIP.Pricings {
+			primaryIPPricing.Pricings = append(primaryIPPricing.Pricings, personalServerPrimaryIPLocationPricing{
+				LocationName:    price.Location,
+				MonthlyGrossEUR: price.Monthly.Gross,
+			})
+		}
+		primaryIPs = append(primaryIPs, primaryIPPricing)
+	}
+	return personalServerPricing{PrimaryIPs: primaryIPs}
 }
 
 func (client hcloudPersonalServerCloudClient) Images(ctx context.Context) ([]personalServerImage, error) {

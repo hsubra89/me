@@ -182,10 +182,13 @@ func runConfigure(out io.Writer, opts configureOptions, deps configureDeps) erro
 	} else {
 		fmt.Fprintln(out, "SSH identity: not configured")
 	}
-	if personalServerErr := deps.personalServerProvisioner.Configure(deps.ctx, out, appConfigPath, cfg, deps.prompter); personalServerErr != nil && sshErr == nil {
+	if sshErr != nil {
+		return sshErr
+	}
+	if personalServerErr := deps.personalServerProvisioner.Configure(deps.ctx, out, appConfigPath, cfg, deps.prompter); personalServerErr != nil {
 		return personalServerErr
 	}
-	return sshErr
+	return nil
 }
 
 func configureLocalRoot(opts configureOptions, cfg appConfig, home string, deps configureDeps) (string, error) {

@@ -391,6 +391,7 @@ func TestRunConfigureNonInteractiveMissingSSHIdentitySavesRootsAndFails(t *testi
 	mkdirAll(t, filepath.Join(home, "projects"))
 	configPath := filepath.Join(t.TempDir(), "me", "config.json")
 
+	provisionerCalled := false
 	var out bytes.Buffer
 	err := runConfigure(&out, configureOptions{
 		localRoot:     "projects",
@@ -405,6 +406,10 @@ func TestRunConfigureNonInteractiveMissingSSHIdentitySavesRootsAndFails(t *testi
 			return home, nil
 		},
 		prompter: &fakeConfigurePrompter{canPrompt: false},
+		personalServerProvisioner: personalServerProvisionerFunc(func(_ context.Context, _ io.Writer, _ string, _ appConfig, _ configurePrompter) error {
+			provisionerCalled = true
+			return nil
+		}),
 	})
 	if err == nil {
 		t.Fatal("expected missing SSH identity error")
@@ -415,12 +420,59 @@ func TestRunConfigureNonInteractiveMissingSSHIdentitySavesRootsAndFails(t *testi
 	if !strings.Contains(out.String(), "SSH identity: not configured") {
 		t.Fatalf("expected not configured output, got %q", out.String())
 	}
-	if !strings.Contains(out.String(), "Personal Server creation skipped: SSH identity is not configured.") {
-		t.Fatalf("expected missing SSH identity Personal Server skip, got %q", out.String())
+	if provisionerCalled {
+		t.Fatal("Personal Server provisioner should not run when SSH configuration fails")
 	}
 
 	assertSavedProjectsConfig(t, configPath, "projects", "projects")
 	assertSavedSSHIdentity(t, configPath, "")
+}
+
+func TestRunConfigureInvalidFlaggedSSHIdentityDoesNotProvisionWithStaleIdentity(t *testing.T) {
+	home := t.TempDir()
+	mkdirAll(t, filepath.Join(home, "projects"))
+	identity := seedTestSSHIdentity(t, home, ".ssh/id_ed25519", "existing@host", 0o600)
+	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	if err := saveAppConfig(configPath, appConfig{
+		Auth: authConfig{
+			Hetzner: hetznerConfig{Token: "existing-token"},
+		},
+		SSH: sshConfig{IdentityFile: identity.Relative},
+	}); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+
+	provisionerCalled := false
+	var out bytes.Buffer
+	err := runConfigure(&out, configureOptions{
+		localRoot:          "projects",
+		localRootSet:       true,
+		remoteRoot:         "projects",
+		remoteRootSet:      true,
+		sshIdentityFile:    filepath.Join(home, ".ssh", "missing"),
+		sshIdentityFileSet: true,
+	}, configureDeps{
+		appConfigPath: func() (string, error) {
+			return configPath, nil
+		},
+		userHomeDir: func() (string, error) {
+			return home, nil
+		},
+		prompter: &fakeConfigurePrompter{canPrompt: true},
+		personalServerProvisioner: personalServerProvisionerFunc(func(_ context.Context, _ io.Writer, _ string, _ appConfig, _ configurePrompter) error {
+			provisionerCalled = true
+			return nil
+		}),
+	})
+	if err == nil {
+		t.Fatal("expected invalid SSH identity error")
+	}
+	if provisionerCalled {
+		t.Fatal("Personal Server provisioner should not run with stale SSH identity after SSH setup fails")
+	}
+
+	assertSavedProjectsConfig(t, configPath, "projects", "projects")
+	assertSavedSSHIdentity(t, configPath, identity.Relative)
 }
 
 func TestRunConfigureInteractiveGeneratesSSHIdentityWithFallbackAndAgentPrompt(t *testing.T) {

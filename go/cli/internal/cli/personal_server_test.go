@@ -116,6 +116,7 @@ func TestRunConfigureClearsStalePersonalServerConfigurationWhenInteractive(t *te
 		serverTypes: []personalServerType{
 			fakePersonalServerType("cx32", "shared", "x86", false, 4, 8, 80, "local", "ash", true, false, "18.50"),
 		},
+		pricing: fakePersonalServerPricing("ipv4", "ash", "0.60"),
 	}
 	gate := personalServerProvisioningGate{
 		newCloudClient: func(string) personalServerCloudClient {
@@ -264,6 +265,7 @@ func TestRunConfigureDoesNotAutoAdoptPersonalServerWithoutSavedConfiguration(t *
 		serverTypes: []personalServerType{
 			fakePersonalServerType("cx32", "shared", "x86", false, 4, 8, 80, "local", "ash", true, false, "18.50"),
 		},
+		pricing: fakePersonalServerPricing("ipv4", "ash", "0.60"),
 	}
 	var out bytes.Buffer
 	if err := runConfigure(&out, configureOptions{
@@ -436,6 +438,7 @@ func TestRunConfigureCollectsPersonalServerCreationInputsAndDeclinesFinalConfirm
 		serverTypes: []personalServerType{
 			fakePersonalServerType("cx32", "shared", "x86", false, 4, 8, 80, "local", "ash", true, false, "18.50"),
 		},
+		pricing: fakePersonalServerPricing("ipv4", "ash", "0.60"),
 	}
 	var gitConfigCalls []string
 	gate := personalServerProvisioningGate{
@@ -533,7 +536,7 @@ func TestRunConfigureCollectsPersonalServerCreationInputsAndDeclinesFinalConfirm
 		"Git identity:",
 		"- user.name: Global Name",
 		"- user.email: local@example.test",
-		"Maximum monthly price: 18.50 EUR gross",
+		"Maximum monthly price: 19.10 EUR gross",
 		"Personal Server creation declined. No cloud resources were created.",
 	} {
 		if !strings.Contains(output, want) {
@@ -571,8 +574,9 @@ func TestRunConfigureFinalConfirmationReportsUnavailablePricing(t *testing.T) {
 	cloud := &fakePersonalServerCloudClient{
 		locations: []personalServerLocation{{Name: "ash", Description: "Ashburn, VA, USA"}},
 		serverTypes: []personalServerType{
-			fakePersonalServerType("cx32", "shared", "x86", false, 4, 8, 80, "local", "ash", true, false, "not-a-price"),
+			fakePersonalServerType("cx32", "shared", "x86", false, 4, 8, 80, "local", "ash", true, false, "18.50"),
 		},
+		pricingErr: errors.New("pricing unavailable"),
 		images: []personalServerImage{
 			{Name: "ubuntu-24.04", Type: "system", Status: "available", OSFlavor: "ubuntu", OSVersion: "24.04", Architecture: "x86"},
 		},
@@ -2051,6 +2055,8 @@ type fakePersonalServerCloudClient struct {
 	failOnCanceledContext   bool
 	locations               []personalServerLocation
 	serverTypes             []personalServerType
+	pricing                 personalServerPricing
+	pricingErr              error
 	images                  []personalServerImage
 	firewallsByName         map[string]personalServerFirewall
 	createdFirewall         personalServerFirewall
@@ -2064,6 +2070,7 @@ type fakePersonalServerCloudClient struct {
 	waitedActionIDs         []int
 	listLocations           int
 	listServerTypes         int
+	listPricing             int
 }
 
 func successfulPersonalServerCloudClient() *fakePersonalServerCloudClient {
@@ -2072,6 +2079,7 @@ func successfulPersonalServerCloudClient() *fakePersonalServerCloudClient {
 		serverTypes: []personalServerType{
 			fakePersonalServerType("cx32", "shared", "x86", false, 4, 8, 80, "local", "ash", true, false, "18.50"),
 		},
+		pricing: fakePersonalServerPricing("ipv4", "ash", "0.60"),
 		images: []personalServerImage{
 			{Name: "ubuntu-24.04", Type: "system", Status: "available", OSFlavor: "ubuntu", OSVersion: "24.04", Architecture: "x86"},
 		},
@@ -2169,6 +2177,17 @@ func (c *fakePersonalServerCloudClient) ServerTypes(ctx context.Context) ([]pers
 	}
 	c.listServerTypes++
 	return c.serverTypes, nil
+}
+
+func (c *fakePersonalServerCloudClient) Pricing(ctx context.Context) (personalServerPricing, error) {
+	if err := c.recordContext(ctx); err != nil {
+		return personalServerPricing{}, err
+	}
+	c.listPricing++
+	if c.pricingErr != nil {
+		return personalServerPricing{}, c.pricingErr
+	}
+	return c.pricing, nil
 }
 
 func (c *fakePersonalServerCloudClient) Images(ctx context.Context) ([]personalServerImage, error) {
@@ -2273,6 +2292,22 @@ func fakePersonalServerType(name string, cpuType string, architecture string, de
 			{
 				LocationName:    location,
 				MonthlyGrossEUR: monthlyGrossEUR,
+			},
+		},
+	}
+}
+
+func fakePersonalServerPricing(ipType string, location string, monthlyGrossEUR string) personalServerPricing {
+	return personalServerPricing{
+		PrimaryIPs: []personalServerPrimaryIPPricing{
+			{
+				Type: ipType,
+				Pricings: []personalServerPrimaryIPLocationPricing{
+					{
+						LocationName:    location,
+						MonthlyGrossEUR: monthlyGrossEUR,
+					},
+				},
 			},
 		},
 	}
