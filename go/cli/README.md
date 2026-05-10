@@ -8,6 +8,17 @@ A small Cobra-based Go CLI under `go/cli`.
 go run ./cmd/me version
 ```
 
+## Local Dev Launcher
+
+```sh
+../../scripts/mount-me-cli
+me version
+```
+
+This creates `~/.local/bin/me` as a launcher for this checkout. It runs
+`go run ./cmd/me`, so local source changes are picked up automatically. Use
+`../../scripts/mount-me-cli --unmount` to remove it.
+
 ## Hetzner Authentication
 
 ```sh
