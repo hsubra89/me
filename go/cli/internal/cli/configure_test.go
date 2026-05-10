@@ -806,15 +806,19 @@ type sshSelectCall struct {
 }
 
 type fakeConfigurePrompter struct {
-	canPrompt     bool
-	inputs        []string
-	passwords     []string
-	confirms      []bool
-	sshSelections []int
-	calls         []configurePromptCall
-	confirmCalls  []string
-	passwordCalls []string
-	sshCalls      []sshSelectCall
+	canPrompt            bool
+	inputs               []string
+	passwords            []string
+	confirms             []bool
+	sshSelections        []int
+	locationSelections   []int
+	serverTypeSelections []int
+	calls                []configurePromptCall
+	confirmCalls         []string
+	passwordCalls        []string
+	sshCalls             []sshSelectCall
+	locationCalls        []personalServerLocationSelectCall
+	serverTypeCalls      []personalServerTypeSelectCall
 }
 
 func (p *fakeConfigurePrompter) CanPrompt() bool {
@@ -866,6 +870,32 @@ func (p *fakeConfigurePrompter) SelectSSHIdentity(choices []sshIdentityPromptCho
 	}
 	if index < 0 || index >= len(choices) {
 		return sshIdentityPromptChoice{}, errors.New("SSH selection index out of range")
+	}
+	return choices[index], nil
+}
+
+func (p *fakeConfigurePrompter) SelectPersonalServerLocation(choices []personalServerLocationChoice, selected int) (personalServerLocationChoice, error) {
+	p.locationCalls = append(p.locationCalls, personalServerLocationSelectCall{choices: choices, selected: selected})
+	index := selected
+	if len(p.locationSelections) > 0 {
+		index = p.locationSelections[0]
+		p.locationSelections = p.locationSelections[1:]
+	}
+	if index < 0 || index >= len(choices) {
+		return personalServerLocationChoice{}, errors.New("Location selection index out of range")
+	}
+	return choices[index], nil
+}
+
+func (p *fakeConfigurePrompter) SelectPersonalServerType(choices []personalServerTypeChoice, selected int) (personalServerTypeChoice, error) {
+	p.serverTypeCalls = append(p.serverTypeCalls, personalServerTypeSelectCall{choices: choices, selected: selected})
+	index := selected
+	if len(p.serverTypeSelections) > 0 {
+		index = p.serverTypeSelections[0]
+		p.serverTypeSelections = p.serverTypeSelections[1:]
+	}
+	if index < 0 || index >= len(choices) {
+		return personalServerTypeChoice{}, errors.New("Server Type selection index out of range")
 	}
 	return choices[index], nil
 }

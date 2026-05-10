@@ -17,6 +17,7 @@ These issues are written locally instead of being published to an issue tracker.
    - **User stories covered**: 9-11, 34-35
 
 3. **Preview Location and Server Type selection**
+   - **Status**: Done
    - **Type**: AFK
    - **Blocked by**: Issue 1
    - **User stories covered**: 12-24, 30-32
@@ -104,6 +105,8 @@ This slice prevents duplicate Personal Servers while avoiding stale local state 
 
 ## Issue 3: Preview Location and Server Type selection
 
+**Status**: Done
+
 ## What to build
 
 Add the interactive pre-creation selection flow for Location and Server Type, ending in a safe declined-create path. Use Hetzner data to list Locations, default to `ash` when available, and show Location labels with the code plus human geography. After Location selection, list only eligible Server Types for that Location.
@@ -112,16 +115,16 @@ The Server Type selector should use explicit Hetzner availability metadata, excl
 
 ## Acceptance criteria
 
-- [ ] Location prompt uses "Location" terminology throughout.
-- [ ] Location options show Hetzner code plus human geography and use the code for API calls.
-- [ ] Location default is `ash` when available.
-- [ ] Location fallback default is the first available Location sorted by code.
-- [ ] Server Type options include only non-deprecated x86_64 types explicitly available in the selected Location.
-- [ ] If a Location has no eligible Server Type, interactive `configure` returns to Location selection.
-- [ ] Server Type default is closest to 21 EUR monthly gross price, breaking ties by dedicated over shared, then RAM, then vCPU.
-- [ ] Server Type labels show dedicated/shared, vCPU, RAM, disk size, actual storage type, and API name.
-- [ ] Server Type selector does not show prices.
-- [ ] If the user declines creation later, Location and Server Type are not saved.
+- [x] Location prompt uses "Location" terminology throughout.
+- [x] Location options show Hetzner code plus human geography and use the code for API calls.
+- [x] Location default is `ash` when available.
+- [x] Location fallback default is the first available Location sorted by code.
+- [x] Server Type options include only non-deprecated x86_64 types explicitly available in the selected Location.
+- [x] If a Location has no eligible Server Type, interactive `configure` returns to Location selection.
+- [x] Server Type default is closest to 21 EUR monthly gross price, breaking ties by dedicated over shared, then RAM, then vCPU.
+- [x] Server Type labels show dedicated/shared, vCPU, RAM, disk size, actual storage type, and API name.
+- [x] Server Type selector does not show prices.
+- [x] If the user declines creation later, Location and Server Type are not saved.
 
 ## Blocked by
 

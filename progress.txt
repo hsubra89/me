@@ -13,3 +13,11 @@
 - Stale Personal Server Configuration now prompts before clearing in interactive mode, and fails without clearing in non-interactive mode.
 - Preserved the no-auto-adoption rule when no Personal Server Configuration is saved, and verified `HCLOUD_ENDPOINT` override behavior with a local HTTP server test.
 - Verified with `go test ./...` from `go/cli`.
+
+2026-05-10 - Completed Issue 3: Preview Location and Server Type selection.
+
+- Added interactive Personal Server Location and Server Type preview prompts after prerequisites are ready.
+- Location choices are sorted by code, labeled with code plus geography, and default to `ash` when available.
+- Server Type choices are filtered to non-deprecated x86 types explicitly available in the selected Location, labeled without prices, and default near 21 EUR monthly gross with the agreed tie-breaks.
+- If a selected Location has no eligible Server Types, `configure` returns to Location selection; declining creation saves no transient Personal Server choices.
+- Verified with `go test ./...` from `go/cli`.

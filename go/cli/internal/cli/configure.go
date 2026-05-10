@@ -49,6 +49,8 @@ type configurePrompter interface {
 	Input(title string, defaultValue string, validate func(string) error) (string, error)
 	Password(title string) (string, error)
 	SelectSSHIdentity(choices []sshIdentityPromptChoice, selected int) (sshIdentityPromptChoice, error)
+	SelectPersonalServerLocation(choices []personalServerLocationChoice, selected int) (personalServerLocationChoice, error)
+	SelectPersonalServerType(choices []personalServerTypeChoice, selected int) (personalServerTypeChoice, error)
 }
 
 func newConfigureCommand() *cobra.Command {
