@@ -360,7 +360,7 @@ func TestRunConfigureSavesLocalConfigBeforePersonalServerBranch(t *testing.T) {
 		sshPublicKey: testSSHPublicKeyFunc(identity),
 		sshAgentList: testSSHAgentListFunc(identity),
 		prompter:     &fakeConfigurePrompter{canPrompt: true},
-		personalServerProvisioner: personalServerProvisionerFunc(func(_ io.Writer, _ appConfig, _ bool) error {
+		personalServerProvisioner: personalServerProvisionerFunc(func(_ io.Writer, _ string, _ appConfig, _ configurePrompter) error {
 			called = true
 			saved, err := loadAppConfig(configPath)
 			if err != nil {

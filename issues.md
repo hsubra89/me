@@ -11,6 +11,7 @@ These issues are written locally instead of being published to an issue tracker.
    - **User stories covered**: 1-8, 25-27, 48, 51-52
 
 2. **Verify existing Personal Server state**
+   - **Status**: Done
    - **Type**: AFK
    - **Blocked by**: Issue 1
    - **User stories covered**: 9-11, 34-35
@@ -80,6 +81,8 @@ None - can start immediately
 
 ## Issue 2: Verify existing Personal Server state
 
+**Status**: Done
+
 ## What to build
 
 When Personal Server Configuration already contains a server ID, use saved Hetzner Credentials to verify that server before deciding to skip creation. If the server exists, report the server ID and IP addresses instead of prompting for a new server. If the server is missing, ask before clearing stale configuration in interactive mode and fail in non-interactive mode.
@@ -88,12 +91,12 @@ This slice prevents duplicate Personal Servers while avoiding stale local state 
 
 ## Acceptance criteria
 
-- [ ] A saved server ID is looked up in Hetzner before creation is skipped.
-- [ ] If the saved server exists, `configure` reports the server ID and current/saved IP addresses and does not create another server.
-- [ ] If the saved server is missing, interactive `configure` asks before clearing Personal Server Configuration.
-- [ ] If the saved server is missing, non-interactive `configure` fails with a clear message and does not clear config.
-- [ ] Hetzner labels are not used to auto-adopt resources when Personal Server Configuration is missing.
-- [ ] Verification respects the configured Hetzner endpoint override.
+- [x] A saved server ID is looked up in Hetzner before creation is skipped.
+- [x] If the saved server exists, `configure` reports the server ID and current/saved IP addresses and does not create another server.
+- [x] If the saved server is missing, interactive `configure` asks before clearing Personal Server Configuration.
+- [x] If the saved server is missing, non-interactive `configure` fails with a clear message and does not clear config.
+- [x] Hetzner labels are not used to auto-adopt resources when Personal Server Configuration is missing.
+- [x] Verification respects the configured Hetzner endpoint override.
 
 ## Blocked by
 

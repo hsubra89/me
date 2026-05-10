@@ -5,3 +5,11 @@
 - `me configure` now skips Personal Server creation with clear messages when SSH identity is missing, Hetzner Credentials are missing, or configure is non-interactive.
 - Added tests for config serialization, local save-before-branch sequencing, missing Hetzner Credentials, missing SSH identity, and non-interactive gating.
 - Verified with `go test ./...` from `go/cli`.
+
+2026-05-10 - Completed Issue 2: Verify existing Personal Server state.
+
+- Added saved Personal Server ID verification through a small Hetzner cloud-client boundary backed by `hcloud-go/v2`.
+- `me configure` now reports an existing configured Personal Server with saved and current IP addresses instead of continuing toward creation.
+- Stale Personal Server Configuration now prompts before clearing in interactive mode, and fails without clearing in non-interactive mode.
+- Preserved the no-auto-adoption rule when no Personal Server Configuration is saved, and verified `HCLOUD_ENDPOINT` override behavior with a local HTTP server test.
+- Verified with `go test ./...` from `go/cli`.

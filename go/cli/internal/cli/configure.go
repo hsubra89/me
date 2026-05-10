@@ -176,7 +176,7 @@ func runConfigure(out io.Writer, opts configureOptions, deps configureDeps) erro
 	} else {
 		fmt.Fprintln(out, "SSH identity: not configured")
 	}
-	if personalServerErr := deps.personalServerProvisioner.Configure(out, cfg, deps.prompter.CanPrompt()); personalServerErr != nil && sshErr == nil {
+	if personalServerErr := deps.personalServerProvisioner.Configure(out, appConfigPath, cfg, deps.prompter); personalServerErr != nil && sshErr == nil {
 		return personalServerErr
 	}
 	return sshErr
