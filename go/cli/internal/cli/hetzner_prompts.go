@@ -76,6 +76,18 @@ func (huhPrompter) InputToken() (string, error) {
 	return token, nil
 }
 
+func (huhPrompter) Input(title string, defaultValue string, validate func(string) error) (string, error) {
+	value := defaultValue
+	if err := huh.NewInput().
+		Title(title).
+		Value(&value).
+		Validate(validate).
+		Run(); err != nil {
+		return "", err
+	}
+	return value, nil
+}
+
 func isTerminal(file *os.File) bool {
 	stat, err := file.Stat()
 	return err == nil && stat.Mode()&os.ModeCharDevice != 0

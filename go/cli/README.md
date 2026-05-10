@@ -19,6 +19,38 @@ This creates `~/.local/bin/me` as a launcher for this checkout. It runs
 `go run ./cmd/me`, so local source changes are picked up automatically. Use
 `../../scripts/mount-me-cli --unmount` to remove it.
 
+## Configure
+
+```sh
+go run ./cmd/me configure
+```
+
+The command configures project roots for this machine and the remote machine.
+It stores normalized home-relative paths in the `me` config:
+
+```json
+{
+  "projects": {
+    "localRoot": "projects",
+    "remoteRoot": "projects"
+  }
+}
+```
+
+The local root must be an existing directory under the current user's home
+directory. The prompt accepts `projects`, `~/projects`, or an absolute path
+under the user's home directory, and stores all of them as `projects`.
+
+The remote root must be relative to the remote user's home directory. The
+prompt accepts `projects` or `~/projects` and stores `projects`; absolute
+remote paths are rejected.
+
+Non-interactive options:
+
+```sh
+go run ./cmd/me configure --local-root projects --remote-root projects
+```
+
 ## Hetzner Authentication
 
 ```sh

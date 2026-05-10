@@ -9,7 +9,8 @@ import (
 )
 
 type appConfig struct {
-	Auth authConfig `json:"auth,omitempty"`
+	Auth     authConfig     `json:"auth,omitempty"`
+	Projects projectsConfig `json:"projects,omitempty"`
 }
 
 type authConfig struct {
@@ -18,6 +19,40 @@ type authConfig struct {
 
 type hetznerConfig struct {
 	Token string `json:"token,omitempty"`
+}
+
+type projectsConfig struct {
+	LocalRoot  string `json:"localRoot,omitempty"`
+	RemoteRoot string `json:"remoteRoot,omitempty"`
+}
+
+func (cfg appConfig) MarshalJSON() ([]byte, error) {
+	type appConfigJSON struct {
+		Auth     *authConfig     `json:"auth,omitempty"`
+		Projects *projectsConfig `json:"projects,omitempty"`
+	}
+
+	var out appConfigJSON
+	if !cfg.Auth.isZero() {
+		out.Auth = &cfg.Auth
+	}
+	if !cfg.Projects.isZero() {
+		out.Projects = &cfg.Projects
+	}
+
+	return json.Marshal(out)
+}
+
+func (cfg authConfig) isZero() bool {
+	return cfg.Hetzner.isZero()
+}
+
+func (cfg hetznerConfig) isZero() bool {
+	return cfg.Token == ""
+}
+
+func (cfg projectsConfig) isZero() bool {
+	return cfg.LocalRoot == "" && cfg.RemoteRoot == ""
 }
 
 func defaultAppConfigPath(env func(string) string) (string, error) {

@@ -21,6 +21,7 @@ func NewRootCommand(info BuildInfo) *cobra.Command {
 	}
 
 	cmd.AddCommand(newAuthCommand())
+	cmd.AddCommand(newConfigureCommand())
 	cmd.AddCommand(newVersionCommand(info))
 
 	return cmd
