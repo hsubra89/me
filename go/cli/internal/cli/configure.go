@@ -486,7 +486,15 @@ func fillConfigureDeps(deps configureDeps) configureDeps {
 		deps.prompter = huhPrompter{}
 	}
 	if deps.personalServerProvisioner == nil {
-		deps.personalServerProvisioner = personalServerProvisioningGate{}
+		deps.personalServerProvisioner = personalServerProvisioningGate{
+			userHomeDir:     deps.userHomeDir,
+			stat:            deps.stat,
+			readFile:        deps.readFile,
+			writeFile:       deps.writeFile,
+			chmod:           deps.chmod,
+			sshPublicKey:    deps.sshPublicKey,
+			currentUsername: deps.currentUsername,
+		}
 	}
 	return deps
 }

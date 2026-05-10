@@ -613,6 +613,406 @@ func TestRunConfigureFinalConfirmationReportsUnavailablePricing(t *testing.T) {
 	}
 }
 
+func TestRunConfigureCreatesHetznerResourcesAndSavesPersonalServer(t *testing.T) {
+	home := t.TempDir()
+	mkdirAll(t, filepath.Join(home, "Remote Projects"))
+	identity := seedTestSSHIdentity(t, home, ".ssh/id_ed25519", "existing@host", 0o600)
+	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	if err := saveAppConfig(configPath, appConfig{
+		Auth: authConfig{
+			Hetzner: hetznerConfig{Token: "existing-token"},
+		},
+	}); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+
+	cloud := &fakePersonalServerCloudClient{
+		locations: []personalServerLocation{{Name: "ash", Description: "Ashburn, VA, USA"}},
+		serverTypes: []personalServerType{
+			fakePersonalServerType("cx32", "shared", "x86", false, 4, 8, 80, "local", "ash", true, false, "18.50"),
+		},
+		images: []personalServerImage{
+			{Name: "ubuntu-22.04", Type: "system", Status: "available", OSFlavor: "ubuntu", OSVersion: "22.04", Architecture: "x86"},
+			{Name: "ubuntu-24.04", Type: "system", Status: "available", OSFlavor: "ubuntu", OSVersion: "24.04", Architecture: "x86"},
+			{Name: "ubuntu-26.04-deprecated", Type: "system", Status: "available", OSFlavor: "ubuntu", OSVersion: "26.04", Architecture: "x86", Deprecated: true},
+			{Name: "debian-13", Type: "system", Status: "available", OSFlavor: "debian", OSVersion: "13", Architecture: "x86"},
+		},
+		createdServer: personalServerCloudServer{
+			ID:   654321,
+			IPv4: "203.0.113.55",
+			IPv6: "2001:db8::55",
+		},
+	}
+	var savedAfterWait bool
+	gate := personalServerProvisioningGate{
+		newCloudClient: func(token string) personalServerCloudClient {
+			if token != "existing-token" {
+				t.Fatalf("token mismatch: %q", token)
+			}
+			return cloud
+		},
+		userHomeDir: func() (string, error) {
+			return home, nil
+		},
+		saveConfig: func(path string, cfg appConfig) error {
+			if !cloud.waitedActions {
+				t.Fatal("Personal Server Configuration was saved before Hetzner create actions were waited")
+			}
+			savedAfterWait = true
+			return saveAppConfig(path, cfg)
+		},
+		currentUsername: func() string {
+			return "harish"
+		},
+	}
+	prompter := &fakeConfigurePrompter{
+		canPrompt: true,
+		inputs:    []string{"harish", "harish-personal-server"},
+		passwords: []string{"server-secret", "server-secret"},
+		confirms:  []bool{true},
+	}
+
+	var out bytes.Buffer
+	if err := runConfigure(&out, configureOptions{
+		localRoot:          "Remote Projects",
+		localRootSet:       true,
+		remoteRoot:         "Remote Projects",
+		remoteRootSet:      true,
+		sshIdentityFile:    identity.PrivatePath,
+		sshIdentityFileSet: true,
+	}, configureDeps{
+		appConfigPath: func() (string, error) {
+			return configPath, nil
+		},
+		userHomeDir: func() (string, error) {
+			return home, nil
+		},
+		sshPublicKey:              testSSHPublicKeyFunc(identity),
+		prompter:                  prompter,
+		personalServerProvisioner: gate,
+	}); err != nil {
+		t.Fatalf("run configure: %v", err)
+	}
+
+	if !savedAfterWait {
+		t.Fatal("Personal Server Configuration was not saved by the provisioning gate")
+	}
+	if got := cloud.serverNames; !reflect.DeepEqual(got, []string{"harish-personal-server"}) {
+		t.Fatalf("server name checks mismatch: want %v, got %v", []string{"harish-personal-server"}, got)
+	}
+	if got := cloud.createdFirewall; got.Name != "me-personal-server" {
+		t.Fatalf("created firewall name mismatch: %#v", got)
+	}
+	if got, want := cloud.createdFirewall.Labels, personalServerResourceLabels(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("created firewall labels mismatch: want %v, got %v", want, got)
+	}
+	if got, want := cloud.createdFirewall.Rules, []personalServerFirewallRule{
+		{Direction: "in", Protocol: "tcp", Port: "22", SourceIPs: []string{"0.0.0.0/0", "::/0"}},
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("created firewall rules mismatch: want %#v, got %#v", want, got)
+	}
+	if got, want := cloud.createdSSHKey.PublicKey, strings.TrimSpace(identity.PublicLine); got != want {
+		t.Fatalf("created SSH key public key mismatch: want %q, got %q", want, got)
+	}
+	if got, want := cloud.sshKeyFingerprints, []string{identity.HetznerFingerprint}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("SSH key fingerprint lookup mismatch: want %v, got %v", want, got)
+	}
+	if got, want := cloud.createdSSHKey.Labels, personalServerResourceLabels(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("created SSH key labels mismatch: want %v, got %v", want, got)
+	}
+	create := cloud.serverCreateRequest
+	if got, want := create.Name, "harish-personal-server"; got != want {
+		t.Fatalf("server create name mismatch: want %q, got %q", want, got)
+	}
+	if got, want := create.LocationName, "ash"; got != want {
+		t.Fatalf("server create Location mismatch: want %q, got %q", want, got)
+	}
+	if got, want := create.ServerTypeName, "cx32"; got != want {
+		t.Fatalf("server create Server Type mismatch: want %q, got %q", want, got)
+	}
+	if got, want := create.ImageName, "ubuntu-24.04"; got != want {
+		t.Fatalf("server create image mismatch: want %q, got %q", want, got)
+	}
+	if !create.EnableIPv4 || !create.EnableIPv6 {
+		t.Fatalf("server create should enable IPv4 and IPv6, got %#v", create)
+	}
+	if got, want := create.Labels, personalServerResourceLabels(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("server create labels mismatch: want %v, got %v", want, got)
+	}
+	if got, want := create.SSHKeyID, 3001; got != want {
+		t.Fatalf("server create SSH key mismatch: want %d, got %d", want, got)
+	}
+	if got, want := create.FirewallID, 2001; got != want {
+		t.Fatalf("server create firewall mismatch: want %d, got %d", want, got)
+	}
+	if !strings.Contains(create.UserData, "#cloud-config\n") || !strings.Contains(create.UserData, "ME_REMOTE_PROJECT_ROOT='/home/harish/Remote Projects'") {
+		t.Fatalf("server create should include rendered Personal Server Bootstrap cloud-init, got %q", create.UserData)
+	}
+	if got, want := cloud.waitedActionIDs, []int{9001}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("waited actions mismatch: want %v, got %v", want, got)
+	}
+
+	cfg, err := loadAppConfig(configPath)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if got, want := cfg.PersonalServer, (personalServerConfig{ServerID: 654321, IPv4: "203.0.113.55", IPv6: "2001:db8::55"}); got != want {
+		t.Fatalf("saved Personal Server Configuration mismatch: want %#v, got %#v", want, got)
+	}
+	if !strings.Contains(out.String(), "Personal Server created: server 654321.") {
+		t.Fatalf("expected created output, got %q", out.String())
+	}
+}
+
+func TestRunConfigureFailsWhenPersonalServerNameAlreadyExists(t *testing.T) {
+	home := t.TempDir()
+	mkdirAll(t, filepath.Join(home, "projects"))
+	identity := seedTestSSHIdentity(t, home, ".ssh/id_ed25519", "existing@host", 0o600)
+	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	if err := saveAppConfig(configPath, appConfig{
+		Auth: authConfig{
+			Hetzner: hetznerConfig{Token: "existing-token"},
+		},
+	}); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+
+	cloud := &fakePersonalServerCloudClient{
+		locations: []personalServerLocation{{Name: "ash", Description: "Ashburn, VA, USA"}},
+		serverTypes: []personalServerType{
+			fakePersonalServerType("cx32", "shared", "x86", false, 4, 8, 80, "local", "ash", true, false, "18.50"),
+		},
+		serversByName: map[string]personalServerCloudServer{
+			"harish-personal-server": {ID: 111111, Name: "harish-personal-server"},
+		},
+	}
+	prompter := &fakeConfigurePrompter{
+		canPrompt: true,
+		inputs:    []string{"harish", "harish-personal-server"},
+		passwords: []string{"server-secret", "server-secret"},
+		confirms:  []bool{true},
+	}
+
+	var out bytes.Buffer
+	err := runConfigure(&out, configureOptions{
+		localRoot:          "projects",
+		localRootSet:       true,
+		remoteRoot:         "projects",
+		remoteRootSet:      true,
+		sshIdentityFile:    identity.PrivatePath,
+		sshIdentityFileSet: true,
+	}, configureDeps{
+		appConfigPath: func() (string, error) {
+			return configPath, nil
+		},
+		userHomeDir: func() (string, error) {
+			return home, nil
+		},
+		sshPublicKey: testSSHPublicKeyFunc(identity),
+		prompter:     prompter,
+		personalServerProvisioner: personalServerProvisioningGate{
+			newCloudClient: func(string) personalServerCloudClient {
+				return cloud
+			},
+			userHomeDir: func() (string, error) {
+				return home, nil
+			},
+			currentUsername: func() string {
+				return "harish"
+			},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected duplicate server name error")
+	}
+	if !strings.Contains(err.Error(), `Personal Server name "harish-personal-server" already exists in Hetzner`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cloud.createdFirewall.ID != 0 || cloud.createdSSHKey.ID != 0 || cloud.serverCreateRequest.Name != "" {
+		t.Fatalf("duplicate name should stop before creating resources, got firewall=%#v sshKey=%#v request=%#v", cloud.createdFirewall, cloud.createdSSHKey, cloud.serverCreateRequest)
+	}
+	cfg, err := loadAppConfig(configPath)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if !cfg.PersonalServer.isZero() {
+		t.Fatalf("duplicate name should not save Personal Server Configuration, got %#v", cfg.PersonalServer)
+	}
+}
+
+func TestRunConfigureFailsWhenNoUbuntuSystemImageIsAvailable(t *testing.T) {
+	home := t.TempDir()
+	mkdirAll(t, filepath.Join(home, "projects"))
+	identity := seedTestSSHIdentity(t, home, ".ssh/id_ed25519", "existing@host", 0o600)
+	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	if err := saveAppConfig(configPath, appConfig{
+		Auth: authConfig{
+			Hetzner: hetznerConfig{Token: "existing-token"},
+		},
+	}); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+
+	cloud := &fakePersonalServerCloudClient{
+		locations: []personalServerLocation{{Name: "ash", Description: "Ashburn, VA, USA"}},
+		serverTypes: []personalServerType{
+			fakePersonalServerType("cx32", "shared", "x86", false, 4, 8, 80, "local", "ash", true, false, "18.50"),
+		},
+		images: []personalServerImage{
+			{Name: "ubuntu-24.04", Type: "system", Status: "available", OSFlavor: "ubuntu", OSVersion: "24.04", Architecture: "x86", Deprecated: true},
+			{Name: "debian-13", Type: "system", Status: "available", OSFlavor: "debian", OSVersion: "13", Architecture: "x86"},
+			{Name: "ubuntu-arm", Type: "system", Status: "available", OSFlavor: "ubuntu", OSVersion: "24.04", Architecture: "arm"},
+		},
+	}
+	prompter := &fakeConfigurePrompter{
+		canPrompt: true,
+		inputs:    []string{"harish", "harish-personal-server"},
+		passwords: []string{"server-secret", "server-secret"},
+		confirms:  []bool{true},
+	}
+
+	var out bytes.Buffer
+	err := runConfigure(&out, configureOptions{
+		localRoot:          "projects",
+		localRootSet:       true,
+		remoteRoot:         "projects",
+		remoteRootSet:      true,
+		sshIdentityFile:    identity.PrivatePath,
+		sshIdentityFileSet: true,
+	}, configureDeps{
+		appConfigPath: func() (string, error) {
+			return configPath, nil
+		},
+		userHomeDir: func() (string, error) {
+			return home, nil
+		},
+		sshPublicKey: testSSHPublicKeyFunc(identity),
+		prompter:     prompter,
+		personalServerProvisioner: personalServerProvisioningGate{
+			newCloudClient: func(string) personalServerCloudClient {
+				return cloud
+			},
+			userHomeDir: func() (string, error) {
+				return home, nil
+			},
+			currentUsername: func() string {
+				return "harish"
+			},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected missing Ubuntu image error")
+	}
+	if !strings.Contains(err.Error(), "no non-deprecated Ubuntu system image is available") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cloud.createdFirewall.ID != 0 || cloud.createdSSHKey.ID != 0 || cloud.serverCreateRequest.Name != "" {
+		t.Fatalf("missing image should stop before creating resources, got firewall=%#v sshKey=%#v request=%#v", cloud.createdFirewall, cloud.createdSSHKey, cloud.serverCreateRequest)
+	}
+}
+
+func TestRunConfigureReusesExistingFirewallAndSSHKey(t *testing.T) {
+	home := t.TempDir()
+	mkdirAll(t, filepath.Join(home, "projects"))
+	identity := seedTestSSHIdentity(t, home, ".ssh/id_ed25519", "existing@host", 0o600)
+	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	if err := saveAppConfig(configPath, appConfig{
+		Auth: authConfig{
+			Hetzner: hetznerConfig{Token: "existing-token"},
+		},
+	}); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+
+	existingFirewall := personalServerFirewall{
+		ID:   2222,
+		Name: "me-personal-server",
+		Rules: []personalServerFirewallRule{
+			{Direction: "in", Protocol: "tcp", Port: "2222", SourceIPs: []string{"198.51.100.0/24"}},
+		},
+	}
+	existingSSHKey := personalServerSSHKey{
+		ID:          3333,
+		Name:        "existing-key",
+		Fingerprint: identity.HetznerFingerprint,
+		PublicKey:   strings.TrimSpace(identity.PublicLine),
+	}
+	cloud := &fakePersonalServerCloudClient{
+		locations: []personalServerLocation{{Name: "ash", Description: "Ashburn, VA, USA"}},
+		serverTypes: []personalServerType{
+			fakePersonalServerType("cx32", "shared", "x86", false, 4, 8, 80, "local", "ash", true, false, "18.50"),
+		},
+		images: []personalServerImage{
+			{Name: "ubuntu-24.04", Type: "system", Status: "available", OSFlavor: "ubuntu", OSVersion: "24.04", Architecture: "x86"},
+		},
+		firewallsByName: map[string]personalServerFirewall{
+			"me-personal-server": existingFirewall,
+		},
+		sshKeysByFingerprint: map[string]personalServerSSHKey{
+			identity.HetznerFingerprint: existingSSHKey,
+		},
+		createdServer: personalServerCloudServer{
+			ID:   654321,
+			IPv4: "203.0.113.55",
+			IPv6: "2001:db8::55",
+		},
+	}
+	prompter := &fakeConfigurePrompter{
+		canPrompt: true,
+		inputs:    []string{"harish", "harish-personal-server"},
+		passwords: []string{"server-secret", "server-secret"},
+		confirms:  []bool{true},
+	}
+
+	var out bytes.Buffer
+	if err := runConfigure(&out, configureOptions{
+		localRoot:          "projects",
+		localRootSet:       true,
+		remoteRoot:         "projects",
+		remoteRootSet:      true,
+		sshIdentityFile:    identity.PrivatePath,
+		sshIdentityFileSet: true,
+	}, configureDeps{
+		appConfigPath: func() (string, error) {
+			return configPath, nil
+		},
+		userHomeDir: func() (string, error) {
+			return home, nil
+		},
+		sshPublicKey: testSSHPublicKeyFunc(identity),
+		prompter:     prompter,
+		personalServerProvisioner: personalServerProvisioningGate{
+			newCloudClient: func(string) personalServerCloudClient {
+				return cloud
+			},
+			userHomeDir: func() (string, error) {
+				return home, nil
+			},
+			currentUsername: func() string {
+				return "harish"
+			},
+		},
+	}); err != nil {
+		t.Fatalf("run configure: %v", err)
+	}
+
+	if cloud.createdFirewall.ID != 0 {
+		t.Fatalf("expected existing firewall to be reused, created %#v", cloud.createdFirewall)
+	}
+	if got, want := cloud.firewallsByName["me-personal-server"].Rules, existingFirewall.Rules; !reflect.DeepEqual(got, want) {
+		t.Fatalf("existing firewall rules should be left untouched: want %#v, got %#v", want, got)
+	}
+	if cloud.createdSSHKey.ID != 0 {
+		t.Fatalf("expected existing SSH key to be reused, created %#v", cloud.createdSSHKey)
+	}
+	if got, want := cloud.serverCreateRequest.FirewallID, existingFirewall.ID; got != want {
+		t.Fatalf("server create firewall mismatch: want %d, got %d", want, got)
+	}
+	if got, want := cloud.serverCreateRequest.SSHKeyID, existingSSHKey.ID; got != want {
+		t.Fatalf("server create SSH key mismatch: want %d, got %d", want, got)
+	}
+}
+
 func TestCollectPersonalServerCreationInputsPromptsWhenUsernameCannotNormalize(t *testing.T) {
 	gate := personalServerProvisioningGate{
 		currentUsername: func() string {
@@ -982,17 +1382,35 @@ func TestRunConfigureVerifiesPersonalServerWithHetznerEndpointOverride(t *testin
 }
 
 type fakePersonalServerCloudClient struct {
-	servers         map[int]personalServerCloudServer
-	serverIDs       []int
-	locations       []personalServerLocation
-	serverTypes     []personalServerType
-	listLocations   int
-	listServerTypes int
+	servers              map[int]personalServerCloudServer
+	serversByName        map[string]personalServerCloudServer
+	serverIDs            []int
+	serverNames          []string
+	locations            []personalServerLocation
+	serverTypes          []personalServerType
+	images               []personalServerImage
+	firewallsByName      map[string]personalServerFirewall
+	createdFirewall      personalServerFirewall
+	sshKeysByFingerprint map[string]personalServerSSHKey
+	sshKeyFingerprints   []string
+	createdSSHKey        personalServerSSHKey
+	serverCreateRequest  personalServerCreateServerRequest
+	createdServer        personalServerCloudServer
+	waitedActions        bool
+	waitedActionIDs      []int
+	listLocations        int
+	listServerTypes      int
 }
 
 func (c *fakePersonalServerCloudClient) ServerByID(_ context.Context, id int) (personalServerCloudServer, bool, error) {
 	c.serverIDs = append(c.serverIDs, id)
 	server, ok := c.servers[id]
+	return server, ok, nil
+}
+
+func (c *fakePersonalServerCloudClient) ServerByName(_ context.Context, name string) (personalServerCloudServer, bool, error) {
+	c.serverNames = append(c.serverNames, name)
+	server, ok := c.serversByName[name]
 	return server, ok, nil
 }
 
@@ -1004,6 +1422,53 @@ func (c *fakePersonalServerCloudClient) Locations(context.Context) ([]personalSe
 func (c *fakePersonalServerCloudClient) ServerTypes(context.Context) ([]personalServerType, error) {
 	c.listServerTypes++
 	return c.serverTypes, nil
+}
+
+func (c *fakePersonalServerCloudClient) Images(context.Context) ([]personalServerImage, error) {
+	return c.images, nil
+}
+
+func (c *fakePersonalServerCloudClient) FirewallByName(_ context.Context, name string) (personalServerFirewall, bool, error) {
+	firewall, ok := c.firewallsByName[name]
+	return firewall, ok, nil
+}
+
+func (c *fakePersonalServerCloudClient) CreateFirewall(_ context.Context, firewall personalServerFirewall) (personalServerFirewall, []personalServerAction, error) {
+	if firewall.ID == 0 {
+		firewall.ID = 2001
+	}
+	c.createdFirewall = firewall
+	return firewall, nil, nil
+}
+
+func (c *fakePersonalServerCloudClient) SSHKeyByFingerprint(_ context.Context, fingerprint string) (personalServerSSHKey, bool, error) {
+	c.sshKeyFingerprints = append(c.sshKeyFingerprints, fingerprint)
+	sshKey, ok := c.sshKeysByFingerprint[fingerprint]
+	return sshKey, ok, nil
+}
+
+func (c *fakePersonalServerCloudClient) CreateSSHKey(_ context.Context, sshKey personalServerSSHKey) (personalServerSSHKey, error) {
+	if sshKey.ID == 0 {
+		sshKey.ID = 3001
+	}
+	c.createdSSHKey = sshKey
+	return sshKey, nil
+}
+
+func (c *fakePersonalServerCloudClient) CreateServer(_ context.Context, request personalServerCreateServerRequest) (personalServerCloudServer, []personalServerAction, error) {
+	c.serverCreateRequest = request
+	return c.createdServer, []personalServerAction{{ID: 9001}}, nil
+}
+
+func (c *fakePersonalServerCloudClient) WaitActions(_ context.Context, actions []personalServerAction) error {
+	if len(actions) == 0 {
+		return nil
+	}
+	c.waitedActions = true
+	for _, action := range actions {
+		c.waitedActionIDs = append(c.waitedActionIDs, action.ID)
+	}
+	return nil
 }
 
 type personalServerLocationSelectCall struct {

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"crypto/md5"
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
@@ -23,6 +24,14 @@ type sshPublicKey struct {
 	KeyType string
 	Body    string
 	Comment string
+}
+
+func (key sshPublicKey) Line() string {
+	parts := []string{key.KeyType, key.Body}
+	if strings.TrimSpace(key.Comment) != "" {
+		parts = append(parts, key.Comment)
+	}
+	return strings.Join(parts, " ")
 }
 
 type sshIdentityCandidate struct {
@@ -258,6 +267,19 @@ func sshPublicKeyFingerprint(publicKey sshPublicKey) (string, error) {
 	}
 	sum := sha256.Sum256(decoded)
 	return "SHA256:" + base64.RawStdEncoding.EncodeToString(sum[:]), nil
+}
+
+func sshPublicKeyHetznerFingerprint(publicKey sshPublicKey) (string, error) {
+	decoded, err := decodeOpenSSHBase64(publicKey.Body)
+	if err != nil {
+		return "", fmt.Errorf("SSH public key body is invalid: %w", err)
+	}
+	sum := md5.Sum(decoded)
+	parts := make([]string, 0, len(sum))
+	for _, b := range sum {
+		parts = append(parts, fmt.Sprintf("%02x", b))
+	}
+	return strings.Join(parts, ":"), nil
 }
 
 func decodeOpenSSHBase64(value string) ([]byte, error) {

@@ -936,12 +936,13 @@ func mkdirAll(t *testing.T, path string) {
 }
 
 type testSSHIdentity struct {
-	Relative    string
-	PrivatePath string
-	PublicPath  string
-	PublicLine  string
-	PublicKey   sshPublicKey
-	Fingerprint string
+	Relative           string
+	PrivatePath        string
+	PublicPath         string
+	PublicLine         string
+	PublicKey          sshPublicKey
+	Fingerprint        string
+	HetznerFingerprint string
 }
 
 func seedTestSSHIdentity(t *testing.T, home string, relative string, comment string, mode os.FileMode) testSSHIdentity {
@@ -963,6 +964,11 @@ func seedTestSSHIdentity(t *testing.T, home string, relative string, comment str
 		t.Fatalf("fingerprint test public key: %v", err)
 	}
 	identity.Fingerprint = fingerprint
+	hetznerFingerprint, err := sshPublicKeyHetznerFingerprint(publicKey)
+	if err != nil {
+		t.Fatalf("Hetzner fingerprint test public key: %v", err)
+	}
+	identity.HetznerFingerprint = hetznerFingerprint
 
 	writeTestFile(t, identity.PrivatePath, "private")
 	if err := os.Chmod(identity.PrivatePath, mode); err != nil {

@@ -35,6 +35,7 @@ These issues are written locally instead of being published to an issue tracker.
    - **User stories covered**: 44-67, 70-71, 73
 
 6. **Create Hetzner resources and save server identity**
+   - **Status**: Done
    - **Type**: AFK
    - **Blocked by**: Issues 4 and 5
    - **User stories covered**: 30-40, 47, 72, 78
@@ -199,6 +200,8 @@ Cloud-init should hard-fail essential setup and report coding agent failures as 
 
 ## Issue 6: Create Hetzner resources and save server identity
 
+**Status**: Done
+
 ## What to build
 
 Connect the confirmed creation flow to Hetzner Cloud. Create or reuse supporting resources, select the latest Ubuntu image, create the server with public IPv4 and IPv6 enabled, attach the rendered Personal Server Bootstrap user data, wait for Hetzner create actions, and save Personal Server Configuration with server ID and assigned addresses once the server exists.
@@ -207,20 +210,20 @@ This slice should create a server but does not need to wait for bootstrap comple
 
 ## Acceptance criteria
 
-- [ ] Creation checks for an existing Hetzner server with the chosen name and fails instead of reusing or suffixing.
-- [ ] Latest non-deprecated Ubuntu system image is selected by highest Ubuntu version.
-- [ ] Creation fails clearly if no Ubuntu image can be found.
-- [ ] Firewall named `me-personal-server` is created or reused.
-- [ ] Newly created firewall allows inbound TCP 22 from all IPv4 and IPv6 sources and no other inbound access.
-- [ ] Existing firewall rules are left untouched.
-- [ ] Hetzner SSH key is created or reused by public key fingerprint.
-- [ ] Server, firewall, and SSH key created by `me` are labeled `managed_by=me` and `role=personal_server`.
-- [ ] Server is created with both IPv4 and IPv6 enabled through server creation public network options.
-- [ ] Server create request includes the selected Location, selected Server Type, latest Ubuntu image, SSH key, firewall, labels, and rendered cloud-init user data.
-- [ ] Hetzner create actions are waited on before returning from the create step.
-- [ ] Personal Server Configuration is saved with server ID, IPv4 address, and assigned IPv6 address after server creation succeeds.
-- [ ] Supporting resources are not automatically cleaned up if server creation fails after they are created.
-- [ ] Creation respects the configured Hetzner endpoint override.
+- [x] Creation checks for an existing Hetzner server with the chosen name and fails instead of reusing or suffixing.
+- [x] Latest non-deprecated Ubuntu system image is selected by highest Ubuntu version.
+- [x] Creation fails clearly if no Ubuntu image can be found.
+- [x] Firewall named `me-personal-server` is created or reused.
+- [x] Newly created firewall allows inbound TCP 22 from all IPv4 and IPv6 sources and no other inbound access.
+- [x] Existing firewall rules are left untouched.
+- [x] Hetzner SSH key is created or reused by public key fingerprint.
+- [x] Server, firewall, and SSH key created by `me` are labeled `managed_by=me` and `role=personal_server`.
+- [x] Server is created with both IPv4 and IPv6 enabled through server creation public network options.
+- [x] Server create request includes the selected Location, selected Server Type, latest Ubuntu image, SSH key, firewall, labels, and rendered cloud-init user data.
+- [x] Hetzner create actions are waited on before returning from the create step.
+- [x] Personal Server Configuration is saved with server ID, IPv4 address, and assigned IPv6 address after server creation succeeds.
+- [x] Supporting resources are not automatically cleaned up if server creation fails after they are created.
+- [x] Creation respects the configured Hetzner endpoint override.
 
 ## Blocked by
 

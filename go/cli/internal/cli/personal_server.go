@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"os"
 	"os/exec"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -36,10 +38,75 @@ type personalServerPreviewCloudClient interface {
 	ServerTypes(ctx context.Context) ([]personalServerType, error)
 }
 
+type personalServerCreateCloudClient interface {
+	personalServerPreviewCloudClient
+	ServerByName(ctx context.Context, name string) (personalServerCloudServer, bool, error)
+	Images(ctx context.Context) ([]personalServerImage, error)
+	FirewallByName(ctx context.Context, name string) (personalServerFirewall, bool, error)
+	CreateFirewall(ctx context.Context, firewall personalServerFirewall) (personalServerFirewall, []personalServerAction, error)
+	SSHKeyByFingerprint(ctx context.Context, fingerprint string) (personalServerSSHKey, bool, error)
+	CreateSSHKey(ctx context.Context, sshKey personalServerSSHKey) (personalServerSSHKey, error)
+	CreateServer(ctx context.Context, request personalServerCreateServerRequest) (personalServerCloudServer, []personalServerAction, error)
+	WaitActions(ctx context.Context, actions []personalServerAction) error
+}
+
 type personalServerCloudServer struct {
 	ID   int
+	Name string
 	IPv4 string
 	IPv6 string
+}
+
+type personalServerImage struct {
+	ID           int
+	Name         string
+	Type         string
+	Status       string
+	OSFlavor     string
+	OSVersion    string
+	Architecture string
+	Deprecated   bool
+}
+
+type personalServerFirewall struct {
+	ID     int
+	Name   string
+	Labels map[string]string
+	Rules  []personalServerFirewallRule
+}
+
+type personalServerFirewallRule struct {
+	Direction string
+	Protocol  string
+	Port      string
+	SourceIPs []string
+}
+
+type personalServerSSHKey struct {
+	ID          int
+	Name        string
+	Fingerprint string
+	PublicKey   string
+	Labels      map[string]string
+}
+
+type personalServerAction struct {
+	ID     int
+	Status string
+}
+
+type personalServerCreateServerRequest struct {
+	Name           string
+	LocationName   string
+	ServerTypeName string
+	ImageID        int
+	ImageName      string
+	SSHKeyID       int
+	FirewallID     int
+	UserData       string
+	Labels         map[string]string
+	EnableIPv4     bool
+	EnableIPv6     bool
 }
 
 type personalServerLocation struct {
@@ -116,6 +183,12 @@ const (
 type personalServerProvisioningGate struct {
 	newCloudClient     func(token string) personalServerCloudClient
 	saveConfig         func(path string, cfg appConfig) error
+	userHomeDir        func() (string, error)
+	stat               func(string) (os.FileInfo, error)
+	readFile           func(string) ([]byte, error)
+	writeFile          func(string, []byte, os.FileMode) error
+	chmod              func(string, os.FileMode) error
+	sshPublicKey       func(string) (string, error)
 	currentUsername    func() string
 	gitConfigValue     func(scope personalServerGitConfigScope, key string) (string, bool)
 	passwordSaltReader io.Reader
@@ -142,7 +215,7 @@ func (gate personalServerProvisioningGate) Configure(out io.Writer, appConfigPat
 	}
 
 	fmt.Fprintln(out, "Personal Server provisioning prerequisites are ready.")
-	return gate.previewPersonalServerCreation(out, token, cfg, prompter)
+	return gate.previewPersonalServerCreation(out, appConfigPath, token, cfg, prompter)
 }
 
 func (gate personalServerProvisioningGate) verifyConfiguredPersonalServer(out io.Writer, appConfigPath string, cfg appConfig, token string, prompter configurePrompter) error {
@@ -171,7 +244,7 @@ func (gate personalServerProvisioningGate) verifyConfiguredPersonalServer(out io
 		}
 		fmt.Fprintln(out, "Cleared stale Personal Server Configuration.")
 		fmt.Fprintln(out, "Personal Server provisioning prerequisites are ready.")
-		return gate.previewPersonalServerCreation(out, token, cfg, prompter)
+		return gate.previewPersonalServerCreation(out, appConfigPath, token, cfg, prompter)
 	}
 
 	fmt.Fprintf(out, "Personal Server already configured: server %d exists.\n", cfg.PersonalServer.ServerID)
@@ -180,7 +253,7 @@ func (gate personalServerProvisioningGate) verifyConfiguredPersonalServer(out io
 	return nil
 }
 
-func (gate personalServerProvisioningGate) previewPersonalServerCreation(out io.Writer, token string, cfg appConfig, prompter configurePrompter) error {
+func (gate personalServerProvisioningGate) previewPersonalServerCreation(out io.Writer, appConfigPath string, token string, cfg appConfig, prompter configurePrompter) error {
 	client, ok := gate.cloudClient(token).(personalServerPreviewCloudClient)
 	if !ok {
 		return fmt.Errorf("Personal Server preview requires a Hetzner client that can list Locations and Server Types")
@@ -253,8 +326,266 @@ func (gate personalServerProvisioningGate) previewPersonalServerCreation(out io.
 			return nil
 		}
 
-		return fmt.Errorf("Personal Server creation is not implemented yet")
+		createClient, ok := client.(personalServerCreateCloudClient)
+		if !ok {
+			return fmt.Errorf("Personal Server creation requires a Hetzner client that can create resources")
+		}
+		return gate.createPersonalServer(out, appConfigPath, cfg, createClient, plan)
 	}
+}
+
+func (gate personalServerProvisioningGate) createPersonalServer(out io.Writer, appConfigPath string, cfg appConfig, client personalServerCreateCloudClient, plan personalServerCreationPlan) error {
+	ctx := context.Background()
+
+	if _, found, err := client.ServerByName(ctx, plan.ServerName); err != nil {
+		return fmt.Errorf("check for existing Personal Server name %q: %w", plan.ServerName, err)
+	} else if found {
+		return fmt.Errorf("Personal Server name %q already exists in Hetzner", plan.ServerName)
+	}
+
+	identity, err := gate.loadPersonalServerSSHIdentity(plan.SSHIdentityFile)
+	if err != nil {
+		return err
+	}
+
+	userData, err := renderPersonalServerBootstrapCloudInit(personalServerBootstrapInput{
+		User:              plan.User,
+		PasswordHash:      plan.PasswordHash,
+		SSHPublicKey:      identity.PublicKey.Line(),
+		RemoteProjectRoot: plan.RemoteProjectRoot,
+		GitIdentity:       plan.GitIdentity,
+		ToolPlan:          defaultPersonalServerBootstrapToolPlan(),
+	})
+	if err != nil {
+		return err
+	}
+
+	image, err := latestPersonalServerUbuntuImage(ctx, client)
+	if err != nil {
+		return err
+	}
+
+	firewall, err := ensurePersonalServerFirewall(ctx, client)
+	if err != nil {
+		return err
+	}
+
+	sshKey, err := ensurePersonalServerSSHKey(ctx, client, identity)
+	if err != nil {
+		return err
+	}
+
+	server, actions, err := client.CreateServer(ctx, personalServerCreateServerRequest{
+		Name:           plan.ServerName,
+		LocationName:   plan.Location.Name,
+		ServerTypeName: plan.ServerType.Name,
+		ImageID:        image.ID,
+		ImageName:      image.Name,
+		SSHKeyID:       sshKey.ID,
+		FirewallID:     firewall.ID,
+		UserData:       userData,
+		Labels:         personalServerResourceLabels(),
+		EnableIPv4:     true,
+		EnableIPv6:     true,
+	})
+	if err != nil {
+		return fmt.Errorf("create Personal Server: %w", err)
+	}
+	if err := client.WaitActions(ctx, actions); err != nil {
+		return fmt.Errorf("wait for Personal Server create actions: %w", err)
+	}
+
+	cfg.PersonalServer = personalServerConfig{
+		ServerID: server.ID,
+		IPv4:     server.IPv4,
+		IPv6:     server.IPv6,
+	}
+	if err := gate.writeConfig(appConfigPath, cfg); err != nil {
+		return err
+	}
+
+	fmt.Fprintf(out, "Personal Server created: server %d.\n", server.ID)
+	fmt.Fprintf(out, "Personal Server addresses: %s\n", formatPersonalServerAddresses(server.IPv4, server.IPv6))
+	return nil
+}
+
+const (
+	personalServerFirewallName = "me-personal-server"
+	personalServerSSHKeyName   = "me-personal-server"
+)
+
+var personalServerUbuntuVersionPattern = regexp.MustCompile(`\d+(?:\.\d+)*`)
+
+func latestPersonalServerUbuntuImage(ctx context.Context, client personalServerCreateCloudClient) (personalServerImage, error) {
+	images, err := client.Images(ctx)
+	if err != nil {
+		return personalServerImage{}, fmt.Errorf("list Ubuntu images: %w", err)
+	}
+
+	image, ok := selectLatestPersonalServerUbuntuImage(images)
+	if !ok {
+		return personalServerImage{}, fmt.Errorf("no non-deprecated Ubuntu system image is available")
+	}
+	return image, nil
+}
+
+func selectLatestPersonalServerUbuntuImage(images []personalServerImage) (personalServerImage, bool) {
+	var selected personalServerImage
+	var selectedVersion []int
+	for _, image := range images {
+		version, ok := personalServerUbuntuImageVersion(image)
+		if !ok {
+			continue
+		}
+		comparison := comparePersonalServerVersions(version, selectedVersion)
+		if selectedVersion == nil || comparison > 0 || (comparison == 0 && image.Name > selected.Name) {
+			selected = image
+			selectedVersion = version
+		}
+	}
+	return selected, selected.Name != "" || selected.ID != 0
+}
+
+func personalServerUbuntuImageVersion(image personalServerImage) ([]int, bool) {
+	if image.Deprecated {
+		return nil, false
+	}
+	if !strings.EqualFold(image.Type, string(hcloud.ImageTypeSystem)) {
+		return nil, false
+	}
+	if !strings.EqualFold(image.Status, string(hcloud.ImageStatusAvailable)) {
+		return nil, false
+	}
+	if !strings.EqualFold(image.OSFlavor, "ubuntu") {
+		return nil, false
+	}
+	if !strings.EqualFold(image.Architecture, string(hcloud.ArchitectureX86)) {
+		return nil, false
+	}
+
+	for _, candidate := range []string{image.OSVersion, image.Name} {
+		if version, ok := parsePersonalServerVersion(candidate); ok {
+			return version, true
+		}
+	}
+	return nil, false
+}
+
+func parsePersonalServerVersion(value string) ([]int, bool) {
+	match := personalServerUbuntuVersionPattern.FindString(value)
+	if match == "" {
+		return nil, false
+	}
+	parts := strings.Split(match, ".")
+	version := make([]int, 0, len(parts))
+	for _, part := range parts {
+		number, err := strconv.Atoi(part)
+		if err != nil {
+			return nil, false
+		}
+		version = append(version, number)
+	}
+	return version, true
+}
+
+func comparePersonalServerVersions(left []int, right []int) int {
+	limit := len(left)
+	if len(right) > limit {
+		limit = len(right)
+	}
+	for i := 0; i < limit; i++ {
+		var l, r int
+		if i < len(left) {
+			l = left[i]
+		}
+		if i < len(right) {
+			r = right[i]
+		}
+		if l > r {
+			return 1
+		}
+		if l < r {
+			return -1
+		}
+	}
+	return 0
+}
+
+func ensurePersonalServerFirewall(ctx context.Context, client personalServerCreateCloudClient) (personalServerFirewall, error) {
+	firewall, found, err := client.FirewallByName(ctx, personalServerFirewallName)
+	if err != nil {
+		return personalServerFirewall{}, fmt.Errorf("find Personal Server Firewall: %w", err)
+	}
+	if found {
+		return firewall, nil
+	}
+
+	firewall, actions, err := client.CreateFirewall(ctx, personalServerFirewall{
+		Name:   personalServerFirewallName,
+		Labels: personalServerResourceLabels(),
+		Rules: []personalServerFirewallRule{
+			{Direction: "in", Protocol: "tcp", Port: "22", SourceIPs: []string{"0.0.0.0/0", "::/0"}},
+		},
+	})
+	if err != nil {
+		return personalServerFirewall{}, fmt.Errorf("create Personal Server Firewall: %w", err)
+	}
+	if err := client.WaitActions(ctx, actions); err != nil {
+		return personalServerFirewall{}, fmt.Errorf("wait for Personal Server Firewall create actions: %w", err)
+	}
+	return firewall, nil
+}
+
+func ensurePersonalServerSSHKey(ctx context.Context, client personalServerCreateCloudClient, identity sshIdentityCandidate) (personalServerSSHKey, error) {
+	fingerprint, err := sshPublicKeyHetznerFingerprint(identity.PublicKey)
+	if err != nil {
+		return personalServerSSHKey{}, err
+	}
+
+	sshKey, found, err := client.SSHKeyByFingerprint(ctx, fingerprint)
+	if err != nil {
+		return personalServerSSHKey{}, fmt.Errorf("find Personal Server SSH Key: %w", err)
+	}
+	if found {
+		return sshKey, nil
+	}
+
+	sshKey, err = client.CreateSSHKey(ctx, personalServerSSHKey{
+		Name:        personalServerSSHKeyName,
+		Fingerprint: fingerprint,
+		PublicKey:   identity.PublicKey.Line(),
+		Labels:      personalServerResourceLabels(),
+	})
+	if err != nil {
+		return personalServerSSHKey{}, fmt.Errorf("create Personal Server SSH Key: %w", err)
+	}
+	return sshKey, nil
+}
+
+func personalServerResourceLabels() map[string]string {
+	return map[string]string{
+		"managed_by": "me",
+		"role":       "personal_server",
+	}
+}
+
+func (gate personalServerProvisioningGate) loadPersonalServerSSHIdentity(identityFile string) (sshIdentityCandidate, error) {
+	home, err := gate.personalServerUserHomeDir()
+	if err != nil {
+		return sshIdentityCandidate{}, fmt.Errorf("find user home directory: %w", err)
+	}
+
+	candidate, err := loadSSHIdentity(identityFile, home, configureDeps{
+		stat:         gate.personalServerStat(),
+		readFile:     gate.personalServerReadFile(),
+		writeFile:    gate.personalServerWriteFile(),
+		chmod:        gate.personalServerChmod(),
+		sshPublicKey: gate.personalServerSSHPublicKey(),
+	})
+	if err != nil {
+		return sshIdentityCandidate{}, fmt.Errorf("load configured SSH identity for Personal Server: %w", err)
+	}
+	return candidate, nil
 }
 
 func (gate personalServerProvisioningGate) collectPersonalServerCreationInputs(prompter configurePrompter) (personalServerCreationInputs, error) {
@@ -403,6 +734,54 @@ func (gate personalServerProvisioningGate) personalServerPasswordSaltReader() io
 		return gate.passwordSaltReader
 	}
 	return rand.Reader
+}
+
+func (gate personalServerProvisioningGate) personalServerUserHomeDir() (string, error) {
+	if gate.userHomeDir != nil {
+		return gate.userHomeDir()
+	}
+	return os.UserHomeDir()
+}
+
+func (gate personalServerProvisioningGate) personalServerStat() func(string) (os.FileInfo, error) {
+	if gate.stat != nil {
+		return gate.stat
+	}
+	return os.Stat
+}
+
+func (gate personalServerProvisioningGate) personalServerReadFile() func(string) ([]byte, error) {
+	if gate.readFile != nil {
+		return gate.readFile
+	}
+	return os.ReadFile
+}
+
+func (gate personalServerProvisioningGate) personalServerWriteFile() func(string, []byte, os.FileMode) error {
+	if gate.writeFile != nil {
+		return gate.writeFile
+	}
+	return os.WriteFile
+}
+
+func (gate personalServerProvisioningGate) personalServerChmod() func(string, os.FileMode) error {
+	if gate.chmod != nil {
+		return gate.chmod
+	}
+	return os.Chmod
+}
+
+func (gate personalServerProvisioningGate) personalServerSSHPublicKey() func(string) (string, error) {
+	if gate.sshPublicKey != nil {
+		return gate.sshPublicKey
+	}
+	return func(identityPath string) (string, error) {
+		output, err := exec.Command("ssh-keygen", "-y", "-f", identityPath).CombinedOutput()
+		if err != nil {
+			return "", commandOutputError("ssh-keygen -y", output, err)
+		}
+		return string(output), nil
+	}
 }
 
 func hashPersonalServerPassword(password string, saltReader io.Reader) (string, error) {
@@ -755,16 +1134,19 @@ func (client hcloudPersonalServerCloudClient) ServerByID(ctx context.Context, id
 		return personalServerCloudServer{}, false, nil
 	}
 
-	result := personalServerCloudServer{
-		ID: int(server.ID),
+	return personalServerCloudServerFromHcloud(server), true, nil
+}
+
+func (client hcloudPersonalServerCloudClient) ServerByName(ctx context.Context, name string) (personalServerCloudServer, bool, error) {
+	server, _, err := client.client.Server.GetByName(ctx, name)
+	if err != nil {
+		return personalServerCloudServer{}, false, err
 	}
-	if !server.PublicNet.IPv4.IsUnspecified() {
-		result.IPv4 = server.PublicNet.IPv4.IP.String()
+	if server == nil {
+		return personalServerCloudServer{}, false, nil
 	}
-	if !server.PublicNet.IPv6.IsUnspecified() {
-		result.IPv6 = server.PublicNet.IPv6.IP.String()
-	}
-	return result, true, nil
+
+	return personalServerCloudServerFromHcloud(server), true, nil
 }
 
 func (client hcloudPersonalServerCloudClient) Locations(ctx context.Context) ([]personalServerLocation, error) {
@@ -837,4 +1219,256 @@ func (client hcloudPersonalServerCloudClient) ServerTypes(ctx context.Context) (
 		})
 	}
 	return result, nil
+}
+
+func (client hcloudPersonalServerCloudClient) Images(ctx context.Context) ([]personalServerImage, error) {
+	images, err := client.client.Image.AllWithOpts(ctx, hcloud.ImageListOpts{
+		Type:              []hcloud.ImageType{hcloud.ImageTypeSystem},
+		Status:            []hcloud.ImageStatus{hcloud.ImageStatusAvailable},
+		Architecture:      []hcloud.Architecture{hcloud.ArchitectureX86},
+		IncludeDeprecated: true,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]personalServerImage, 0, len(images))
+	for _, image := range images {
+		if image == nil {
+			continue
+		}
+		result = append(result, personalServerImage{
+			ID:           int(image.ID),
+			Name:         image.Name,
+			Type:         string(image.Type),
+			Status:       string(image.Status),
+			OSFlavor:     image.OSFlavor,
+			OSVersion:    image.OSVersion,
+			Architecture: string(image.Architecture),
+			Deprecated:   image.IsDeprecated(),
+		})
+	}
+	return result, nil
+}
+
+func (client hcloudPersonalServerCloudClient) FirewallByName(ctx context.Context, name string) (personalServerFirewall, bool, error) {
+	firewall, _, err := client.client.Firewall.GetByName(ctx, name)
+	if err != nil {
+		return personalServerFirewall{}, false, err
+	}
+	if firewall == nil {
+		return personalServerFirewall{}, false, nil
+	}
+	return personalServerFirewallFromHcloud(firewall), true, nil
+}
+
+func (client hcloudPersonalServerCloudClient) CreateFirewall(ctx context.Context, firewall personalServerFirewall) (personalServerFirewall, []personalServerAction, error) {
+	rules, err := hcloudFirewallRules(firewall.Rules)
+	if err != nil {
+		return personalServerFirewall{}, nil, err
+	}
+
+	result, _, err := client.client.Firewall.Create(ctx, hcloud.FirewallCreateOpts{
+		Name:   firewall.Name,
+		Labels: firewall.Labels,
+		Rules:  rules,
+	})
+	if err != nil {
+		return personalServerFirewall{}, nil, err
+	}
+	return personalServerFirewallFromHcloud(result.Firewall), personalServerActionsFromHcloud(result.Actions), nil
+}
+
+func (client hcloudPersonalServerCloudClient) SSHKeyByFingerprint(ctx context.Context, fingerprint string) (personalServerSSHKey, bool, error) {
+	sshKey, _, err := client.client.SSHKey.GetByFingerprint(ctx, fingerprint)
+	if err != nil {
+		return personalServerSSHKey{}, false, err
+	}
+	if sshKey == nil {
+		return personalServerSSHKey{}, false, nil
+	}
+	return personalServerSSHKeyFromHcloud(sshKey), true, nil
+}
+
+func (client hcloudPersonalServerCloudClient) CreateSSHKey(ctx context.Context, sshKey personalServerSSHKey) (personalServerSSHKey, error) {
+	created, _, err := client.client.SSHKey.Create(ctx, hcloud.SSHKeyCreateOpts{
+		Name:      sshKey.Name,
+		PublicKey: sshKey.PublicKey,
+		Labels:    sshKey.Labels,
+	})
+	if err != nil {
+		return personalServerSSHKey{}, err
+	}
+	return personalServerSSHKeyFromHcloud(created), nil
+}
+
+func (client hcloudPersonalServerCloudClient) CreateServer(ctx context.Context, request personalServerCreateServerRequest) (personalServerCloudServer, []personalServerAction, error) {
+	result, _, err := client.client.Server.Create(ctx, hcloud.ServerCreateOpts{
+		Name:       request.Name,
+		ServerType: &hcloud.ServerType{Name: request.ServerTypeName},
+		Image:      &hcloud.Image{ID: int64(request.ImageID), Name: request.ImageName},
+		SSHKeys:    []*hcloud.SSHKey{{ID: int64(request.SSHKeyID)}},
+		Location:   &hcloud.Location{Name: request.LocationName},
+		UserData:   request.UserData,
+		Labels:     request.Labels,
+		Firewalls: []*hcloud.ServerCreateFirewall{
+			{Firewall: hcloud.Firewall{ID: int64(request.FirewallID)}},
+		},
+		PublicNet: &hcloud.ServerCreatePublicNet{
+			EnableIPv4: request.EnableIPv4,
+			EnableIPv6: request.EnableIPv6,
+		},
+	})
+	if err != nil {
+		return personalServerCloudServer{}, nil, err
+	}
+
+	actions := personalServerActionsFromHcloud(append([]*hcloud.Action{result.Action}, result.NextActions...))
+	return personalServerCloudServerFromHcloud(result.Server), actions, nil
+}
+
+func (client hcloudPersonalServerCloudClient) WaitActions(ctx context.Context, actions []personalServerAction) error {
+	if len(actions) == 0 {
+		return nil
+	}
+
+	hcloudActions := make([]*hcloud.Action, 0, len(actions))
+	for _, action := range actions {
+		if action.ID == 0 {
+			continue
+		}
+		status := hcloud.ActionStatus(action.Status)
+		if status == "" {
+			status = hcloud.ActionStatusRunning
+		}
+		hcloudActions = append(hcloudActions, &hcloud.Action{
+			ID:     int64(action.ID),
+			Status: status,
+		})
+	}
+	if len(hcloudActions) == 0 {
+		return nil
+	}
+	return client.client.Action.WaitFor(ctx, hcloudActions...)
+}
+
+func personalServerCloudServerFromHcloud(server *hcloud.Server) personalServerCloudServer {
+	if server == nil {
+		return personalServerCloudServer{}
+	}
+	result := personalServerCloudServer{
+		ID:   int(server.ID),
+		Name: server.Name,
+	}
+	if !server.PublicNet.IPv4.IsUnspecified() {
+		result.IPv4 = server.PublicNet.IPv4.IP.String()
+	}
+	if !server.PublicNet.IPv6.IsUnspecified() {
+		result.IPv6 = server.PublicNet.IPv6.IP.String()
+	}
+	return result
+}
+
+func personalServerFirewallFromHcloud(firewall *hcloud.Firewall) personalServerFirewall {
+	if firewall == nil {
+		return personalServerFirewall{}
+	}
+	result := personalServerFirewall{
+		ID:     int(firewall.ID),
+		Name:   firewall.Name,
+		Labels: copyPersonalServerLabels(firewall.Labels),
+		Rules:  make([]personalServerFirewallRule, 0, len(firewall.Rules)),
+	}
+	for _, rule := range firewall.Rules {
+		result.Rules = append(result.Rules, personalServerFirewallRule{
+			Direction: string(rule.Direction),
+			Protocol:  string(rule.Protocol),
+			Port:      stringValue(rule.Port),
+			SourceIPs: ipNetStrings(rule.SourceIPs),
+		})
+	}
+	return result
+}
+
+func personalServerSSHKeyFromHcloud(sshKey *hcloud.SSHKey) personalServerSSHKey {
+	if sshKey == nil {
+		return personalServerSSHKey{}
+	}
+	return personalServerSSHKey{
+		ID:          int(sshKey.ID),
+		Name:        sshKey.Name,
+		Fingerprint: sshKey.Fingerprint,
+		PublicKey:   sshKey.PublicKey,
+		Labels:      copyPersonalServerLabels(sshKey.Labels),
+	}
+}
+
+func personalServerActionsFromHcloud(actions []*hcloud.Action) []personalServerAction {
+	result := make([]personalServerAction, 0, len(actions))
+	for _, action := range actions {
+		if action == nil {
+			continue
+		}
+		result = append(result, personalServerAction{
+			ID:     int(action.ID),
+			Status: string(action.Status),
+		})
+	}
+	return result
+}
+
+func hcloudFirewallRules(rules []personalServerFirewallRule) ([]hcloud.FirewallRule, error) {
+	result := make([]hcloud.FirewallRule, 0, len(rules))
+	for _, rule := range rules {
+		sourceIPs, err := parsePersonalServerCIDRs(rule.SourceIPs)
+		if err != nil {
+			return nil, err
+		}
+		port := rule.Port
+		result = append(result, hcloud.FirewallRule{
+			Direction: hcloud.FirewallRuleDirection(rule.Direction),
+			Protocol:  hcloud.FirewallRuleProtocol(rule.Protocol),
+			Port:      &port,
+			SourceIPs: sourceIPs,
+		})
+	}
+	return result, nil
+}
+
+func parsePersonalServerCIDRs(values []string) ([]net.IPNet, error) {
+	result := make([]net.IPNet, 0, len(values))
+	for _, value := range values {
+		_, network, err := net.ParseCIDR(value)
+		if err != nil {
+			return nil, fmt.Errorf("parse firewall source CIDR %q: %w", value, err)
+		}
+		result = append(result, *network)
+	}
+	return result, nil
+}
+
+func ipNetStrings(values []net.IPNet) []string {
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		result = append(result, value.String())
+	}
+	return result
+}
+
+func copyPersonalServerLabels(labels map[string]string) map[string]string {
+	if labels == nil {
+		return nil
+	}
+	out := make(map[string]string, len(labels))
+	for key, value := range labels {
+		out[key] = value
+	}
+	return out
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }

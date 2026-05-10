@@ -37,3 +37,11 @@
 - The bootstrap script installs security updates, unattended upgrades, Docker from Docker's apt repository, user-owned Homebrew tools, nvm-managed LTS Node/npm, Codex, and Claude Code; coding agent failures are recorded as partial failures.
 - The completion marker records status, timestamp, reboot requirement, installed tool versions, skipped Git identity values, and partial failures.
 - Verified with `go test ./...` from `go/cli`.
+
+2026-05-10 - Completed Issue 6: Create Hetzner resources and save server identity.
+
+- Connected confirmed Personal Server creation to the Hetzner client boundary, including duplicate server-name checks, latest non-deprecated Ubuntu image selection, reusable firewall creation, SSH key reuse by Hetzner fingerprint, server creation with IPv4/IPv6 public networking, labels, and rendered cloud-init user data.
+- Added the `hcloud-go` adapter methods for servers, images, firewalls, SSH keys, and action waiting while preserving `HCLOUD_ENDPOINT` support.
+- Saved Personal Server Configuration with only server ID, IPv4, and assigned IPv6 after create actions complete, and left supporting resources unmanaged on downstream server creation failures.
+- Added behavior tests for the successful creation path, duplicate names, missing Ubuntu images, and reuse of existing firewall and SSH key resources.
+- Verified with `go test ./...` and `go vet ./...` from `go/cli`.
