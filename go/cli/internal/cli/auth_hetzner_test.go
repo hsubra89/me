@@ -15,8 +15,8 @@ import (
 
 func TestAuthHetznerTokenFlagValidatesAndPersists(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config", "me", "config.json")
-	server := newHetznerValidationServer(t, map[string]bool{
-		"flag-token": true,
+	server := newHetznerValidationServer(t, map[string]testHetznerTokenPermission{
+		"flag-token": testHetznerReadWrite,
 	})
 
 	t.Setenv("ME_CONFIG", configPath)
@@ -42,8 +42,8 @@ func TestAuthHetznerTokenFlagValidatesAndPersists(t *testing.T) {
 
 func TestAuthHetznerTokenFlagRejectsInvalidToken(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "me", "config.json")
-	server := newHetznerValidationServer(t, map[string]bool{
-		"good-token": true,
+	server := newHetznerValidationServer(t, map[string]testHetznerTokenPermission{
+		"good-token": testHetznerReadWrite,
 	})
 
 	t.Setenv("ME_CONFIG", configPath)
@@ -66,11 +66,37 @@ func TestAuthHetznerTokenFlagRejectsInvalidToken(t *testing.T) {
 	}
 }
 
+func TestAuthHetznerTokenFlagRejectsReadOnlyToken(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	server := newHetznerValidationServer(t, map[string]testHetznerTokenPermission{
+		"read-only-token": testHetznerReadOnly,
+	})
+
+	t.Setenv("ME_CONFIG", configPath)
+	t.Setenv("HCLOUD_ENDPOINT", server.URL)
+
+	var out bytes.Buffer
+	cmd := NewRootCommand(BuildInfo{})
+	cmd.SetArgs([]string{"auth", "hetzner", "--token", "read-only-token"})
+	cmd.SetOut(&out)
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected read-only token error")
+	}
+	if !strings.Contains(err.Error(), "Hetzner token validation failed: token is read-only; create a Read & Write Hetzner token") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, statErr := os.Stat(configPath); !os.IsNotExist(statErr) {
+		t.Fatalf("config should not exist after read-only token, stat err: %v", statErr)
+	}
+}
+
 func TestAuthHetznerImportsNamedHcloudContext(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "me", "config.json")
 	hcloudConfigPath := filepath.Join(t.TempDir(), "hcloud", "cli.toml")
-	server := newHetznerValidationServer(t, map[string]bool{
-		"staging-token": true,
+	server := newHetznerValidationServer(t, map[string]testHetznerTokenPermission{
+		"staging-token": testHetznerReadWrite,
 	})
 
 	writeTestFile(t, hcloudConfigPath, `
@@ -309,19 +335,47 @@ func (p *fakeHetznerPrompter) InputToken() (string, error) {
 	return p.inputToken, nil
 }
 
-func newHetznerValidationServer(t *testing.T, validTokens map[string]bool) *httptest.Server {
+type testHetznerTokenPermission string
+
+const (
+	testHetznerReadOnly  testHetznerTokenPermission = "read"
+	testHetznerReadWrite testHetznerTokenPermission = "read-write"
+)
+
+func newHetznerValidationServer(t *testing.T, tokens map[string]testHetznerTokenPermission) *httptest.Server {
 	t.Helper()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/locations" {
+		if r.URL.Path != hetznerReadValidationPath && r.URL.Path != hetznerWriteValidationPath {
 			t.Errorf("unexpected validation path: %s", r.URL.Path)
 			http.NotFound(w, r)
 			return
 		}
+		if r.URL.Path == hetznerReadValidationPath && r.Method != http.MethodGet {
+			t.Errorf("unexpected read validation method: %s", r.Method)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if r.URL.Path == hetznerWriteValidationPath && r.Method != http.MethodDelete {
+			t.Errorf("unexpected write validation method: %s", r.Method)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
 
 		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if !validTokens[token] {
+		permission, ok := tokens[token]
+		if !ok {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		if r.URL.Path == hetznerWriteValidationPath {
+			if permission != testHetznerReadWrite {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
+
+			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
 

@@ -11,8 +11,10 @@ import (
 )
 
 const (
-	defaultHetznerEndpoint = "https://api.hetzner.cloud/v1"
-	hetznerValidationLimit = 4 * time.Second
+	defaultHetznerEndpoint     = "https://api.hetzner.cloud/v1"
+	hetznerValidationLimit     = 4 * time.Second
+	hetznerReadValidationPath  = "/locations"
+	hetznerWriteValidationPath = "/ssh_keys/0"
 )
 
 type hetznerValidator struct {
@@ -54,7 +56,15 @@ func (v hetznerValidator) validate(ctx context.Context, token string) error {
 	validateCtx, cancel := context.WithTimeout(ctx, v.timeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(validateCtx, http.MethodGet, v.endpoint+"/locations", nil)
+	if err := v.validateReadable(validateCtx, token); err != nil {
+		return err
+	}
+
+	return v.validateWritable(validateCtx, token)
+}
+
+func (v hetznerValidator) validateReadable(ctx context.Context, token string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, v.endpoint+hetznerReadValidationPath, nil)
 	if err != nil {
 		return fmt.Errorf("build Hetzner validation request: %w", err)
 	}
@@ -63,7 +73,7 @@ func (v hetznerValidator) validate(ctx context.Context, token string) error {
 
 	resp, err := v.client.Do(req)
 	if err != nil {
-		if validateCtx.Err() != nil || os.IsTimeout(err) {
+		if ctx.Err() != nil || os.IsTimeout(err) {
 			return hetznerValidationError{reason: "did not validate within 4s", timeout: true}
 		}
 		return hetznerValidationError{reason: fmt.Sprintf("request failed: %v", err)}
@@ -78,6 +88,40 @@ func (v hetznerValidator) validate(ctx context.Context, token string) error {
 	case http.StatusUnauthorized, http.StatusForbidden:
 		return hetznerValidationError{reason: fmt.Sprintf("API rejected the token (%s)", resp.Status)}
 	default:
+		return hetznerValidationError{reason: fmt.Sprintf("Hetzner API returned %s", resp.Status)}
+	}
+}
+
+func (v hetznerValidator) validateWritable(ctx context.Context, token string) error {
+	// ID 0 is used as a non-existent key. A Read & Write token reaches the
+	// not-found check, while a read-only token is rejected for using DELETE.
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, v.endpoint+hetznerWriteValidationPath, nil)
+	if err != nil {
+		return fmt.Errorf("build Hetzner write validation request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := v.client.Do(req)
+	if err != nil {
+		if ctx.Err() != nil || os.IsTimeout(err) {
+			return hetznerValidationError{reason: "did not validate within 4s", timeout: true}
+		}
+		return hetznerValidationError{reason: fmt.Sprintf("request failed: %v", err)}
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusBadRequest, http.StatusNotFound:
+		return nil
+	case http.StatusUnauthorized:
+		return hetznerValidationError{reason: fmt.Sprintf("API rejected the token (%s)", resp.Status)}
+	case http.StatusForbidden:
+		return hetznerValidationError{reason: "token is read-only; create a Read & Write Hetzner token"}
+	default:
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			return nil
+		}
 		return hetznerValidationError{reason: fmt.Sprintf("Hetzner API returned %s", resp.Status)}
 	}
 }

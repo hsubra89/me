@@ -25,8 +25,10 @@ This creates `~/.local/bin/me` as a launcher for this checkout. It runs
 go run ./cmd/me auth hetzner
 ```
 
-The command validates a Hetzner Cloud API token with a read-only request to
-`/locations` and saves it in the `me` config. By default the config path is
+The command validates that a Hetzner Cloud API token is a Read & Write token and
+saves it in the `me` config. It first checks `/locations`, then probes
+`DELETE /ssh_keys/0` against a non-existent key so no key is created. By
+default the config path is
 `${XDG_CONFIG_HOME}/me/config.json` or the platform equivalent from Go's
 `os.UserConfigDir`; set `ME_CONFIG` to override it.
 
