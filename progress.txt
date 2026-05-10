@@ -45,3 +45,13 @@
 - Saved Personal Server Configuration with only server ID, IPv4, and assigned IPv6 after create actions complete, and left supporting resources unmanaged on downstream server creation failures.
 - Added behavior tests for the successful creation path, duplicate names, missing Ubuntu images, and reuse of existing firewall and SSH key resources.
 - Verified with `go test ./...` and `go vet ./...` from `go/cli`.
+
+2026-05-10 - Completed Issue 7: Poll bootstrap completion and report access.
+
+- Added root SSH readiness polling through a testable SSH runner using the configured SSH identity before bootstrap marker polling begins.
+- Added five-minute bootstrap marker polling after root SSH first accepts, with temporary SSH disconnects tolerated so reboot downtime counts against the bootstrap timeout.
+- Parsed the Personal Server Bootstrap marker for status, timestamp, reboot requirement, installed tool versions, and partial failures.
+- Reported successful bootstrap versions and partial coding-agent failures without failing the whole provisioning path.
+- Reported hard bootstrap failures and timeouts while preserving the saved Personal Server Configuration and printing inspection SSH commands.
+- Printed user and root SSH commands over IPv4 and IPv6, IPv4 first, with `-i` pointing at the configured SSH identity.
+- Verified with `go test ./...` and `go vet ./...` from `go/cli`.

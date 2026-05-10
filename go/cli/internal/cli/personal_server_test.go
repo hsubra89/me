@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRunConfigureReportsExistingPersonalServer(t *testing.T) {
@@ -661,6 +663,7 @@ func TestRunConfigureCreatesHetznerResourcesAndSavesPersonalServer(t *testing.T)
 			savedAfterWait = true
 			return saveAppConfig(path, cfg)
 		},
+		runSSH: newSuccessfulPersonalServerSSHRunner().Run,
 		currentUsername: func() string {
 			return "harish"
 		},
@@ -761,6 +764,365 @@ func TestRunConfigureCreatesHetznerResourcesAndSavesPersonalServer(t *testing.T)
 	}
 	if !strings.Contains(out.String(), "Personal Server created: server 654321.") {
 		t.Fatalf("expected created output, got %q", out.String())
+	}
+}
+
+func TestRunConfigurePollsBootstrapAndReportsAccess(t *testing.T) {
+	home := t.TempDir()
+	mkdirAll(t, filepath.Join(home, "Remote Projects"))
+	identity := seedTestSSHIdentity(t, home, ".ssh/id_ed25519", "existing@host", 0o600)
+	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	if err := saveAppConfig(configPath, appConfig{
+		Auth: authConfig{
+			Hetzner: hetznerConfig{Token: "existing-token"},
+		},
+	}); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+
+	cloud := &fakePersonalServerCloudClient{
+		locations: []personalServerLocation{{Name: "ash", Description: "Ashburn, VA, USA"}},
+		serverTypes: []personalServerType{
+			fakePersonalServerType("cx32", "shared", "x86", false, 4, 8, 80, "local", "ash", true, false, "18.50"),
+		},
+		images: []personalServerImage{
+			{Name: "ubuntu-24.04", Type: "system", Status: "available", OSFlavor: "ubuntu", OSVersion: "24.04", Architecture: "x86"},
+		},
+		createdServer: personalServerCloudServer{
+			ID:   654321,
+			IPv4: "203.0.113.55",
+			IPv6: "2001:db8::55",
+		},
+	}
+	ssh := &fakePersonalServerSSHRunner{
+		outputs: []string{
+			"ready\n",
+			`{
+  "status": "success",
+  "timestamp": "2026-05-10T12:00:00Z",
+  "rebootRequired": true,
+  "toolVersions": {
+    "docker": "Docker version 28.1.0",
+    "node": "v24.0.0"
+  },
+  "partialFailures": ["Claude Code install failed"]
+}`,
+		},
+	}
+	prompter := &fakeConfigurePrompter{
+		canPrompt: true,
+		inputs:    []string{"harish", "harish-personal-server"},
+		passwords: []string{"server-secret", "server-secret"},
+		confirms:  []bool{true},
+	}
+
+	var out bytes.Buffer
+	if err := runConfigure(&out, configureOptions{
+		localRoot:          "Remote Projects",
+		localRootSet:       true,
+		remoteRoot:         "Remote Projects",
+		remoteRootSet:      true,
+		sshIdentityFile:    identity.PrivatePath,
+		sshIdentityFileSet: true,
+	}, configureDeps{
+		appConfigPath: func() (string, error) {
+			return configPath, nil
+		},
+		userHomeDir: func() (string, error) {
+			return home, nil
+		},
+		sshPublicKey: testSSHPublicKeyFunc(identity),
+		prompter:     prompter,
+		personalServerProvisioner: personalServerProvisioningGate{
+			newCloudClient: func(string) personalServerCloudClient {
+				return cloud
+			},
+			userHomeDir: func() (string, error) {
+				return home, nil
+			},
+			runSSH: ssh.Run,
+			currentUsername: func() string {
+				return "harish"
+			},
+		},
+	}); err != nil {
+		t.Fatalf("run configure: %v", err)
+	}
+
+	if got, want := ssh.calls, []personalServerSSHCall{
+		{identityFile: identity.PrivatePath, user: "root", host: "203.0.113.55", command: "true"},
+		{identityFile: identity.PrivatePath, user: "root", host: "203.0.113.55", command: "cat /var/lib/me/personal-server-bootstrap.json"},
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("SSH calls mismatch: want %#v, got %#v", want, got)
+	}
+	output := out.String()
+	for _, want := range []string{
+		"Personal Server created: server 654321.",
+		"Personal Server bootstrap completed.",
+		"Bootstrap timestamp: 2026-05-10T12:00:00Z",
+		"Reboot required: true",
+		"Installed tool versions:",
+		"- docker: Docker version 28.1.0",
+		"- node: v24.0.0",
+		"Partial bootstrap failures:",
+		"- Claude Code install failed",
+		"SSH commands:",
+		"- user IPv4: ssh -i ~/.ssh/id_ed25519 harish@203.0.113.55",
+		"- root IPv4: ssh -i ~/.ssh/id_ed25519 root@203.0.113.55",
+		"- user IPv6: ssh -i ~/.ssh/id_ed25519 harish@[2001:db8::55]",
+		"- root IPv6: ssh -i ~/.ssh/id_ed25519 root@[2001:db8::55]",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected output to contain %q, got %q", want, output)
+		}
+	}
+}
+
+func TestRunConfigureToleratesTemporarySSHDisconnectsDuringBootstrap(t *testing.T) {
+	home := t.TempDir()
+	mkdirAll(t, filepath.Join(home, "projects"))
+	identity := seedTestSSHIdentity(t, home, ".ssh/id_ed25519", "existing@host", 0o600)
+	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	if err := saveAppConfig(configPath, appConfig{
+		Auth: authConfig{
+			Hetzner: hetznerConfig{Token: "existing-token"},
+		},
+	}); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+
+	cloud := successfulPersonalServerCloudClient()
+	ssh := &fakePersonalServerSSHRunner{
+		errors: []error{
+			errors.New("connection refused"),
+			nil,
+			errors.New("connection reset during reboot"),
+			nil,
+		},
+		outputs: []string{
+			"ready\n",
+			`{"status":"success","timestamp":"2026-05-10T12:00:00Z","toolVersions":{"docker":"Docker version 28.1.0"}}`,
+		},
+	}
+
+	var out bytes.Buffer
+	if err := runConfigure(&out, configureOptions{
+		localRoot:          "projects",
+		localRootSet:       true,
+		remoteRoot:         "projects",
+		remoteRootSet:      true,
+		sshIdentityFile:    identity.PrivatePath,
+		sshIdentityFileSet: true,
+	}, configureDeps{
+		appConfigPath: func() (string, error) {
+			return configPath, nil
+		},
+		userHomeDir: func() (string, error) {
+			return home, nil
+		},
+		sshPublicKey: testSSHPublicKeyFunc(identity),
+		prompter: &fakeConfigurePrompter{
+			canPrompt: true,
+			inputs:    []string{"harish", "harish-personal-server"},
+			passwords: []string{"server-secret", "server-secret"},
+			confirms:  []bool{true},
+		},
+		personalServerProvisioner: personalServerProvisioningGate{
+			newCloudClient: func(string) personalServerCloudClient {
+				return cloud
+			},
+			userHomeDir: func() (string, error) {
+				return home, nil
+			},
+			runSSH: ssh.Run,
+			sleep: func(context.Context, time.Duration) error {
+				return nil
+			},
+			currentUsername: func() string {
+				return "harish"
+			},
+		},
+	}); err != nil {
+		t.Fatalf("run configure: %v", err)
+	}
+
+	if got, want := ssh.calls, []personalServerSSHCall{
+		{identityFile: identity.PrivatePath, user: "root", host: "203.0.113.55", command: "true"},
+		{identityFile: identity.PrivatePath, user: "root", host: "203.0.113.55", command: "true"},
+		{identityFile: identity.PrivatePath, user: "root", host: "203.0.113.55", command: "cat /var/lib/me/personal-server-bootstrap.json"},
+		{identityFile: identity.PrivatePath, user: "root", host: "203.0.113.55", command: "cat /var/lib/me/personal-server-bootstrap.json"},
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("SSH calls mismatch: want %#v, got %#v", want, got)
+	}
+	if !strings.Contains(out.String(), "Personal Server bootstrap completed.") {
+		t.Fatalf("expected bootstrap completion output, got %q", out.String())
+	}
+}
+
+func TestRunConfigureReportsBootstrapFailureButKeepsSavedServer(t *testing.T) {
+	home := t.TempDir()
+	mkdirAll(t, filepath.Join(home, "projects"))
+	identity := seedTestSSHIdentity(t, home, ".ssh/id_ed25519", "existing@host", 0o600)
+	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	if err := saveAppConfig(configPath, appConfig{
+		Auth: authConfig{
+			Hetzner: hetznerConfig{Token: "existing-token"},
+		},
+	}); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+
+	ssh := &fakePersonalServerSSHRunner{
+		outputs: []string{
+			"ready\n",
+			`{"status":"failed","timestamp":"2026-05-10T12:00:00Z","failure":"apt-get upgrade (exit 1)","partialFailures":["Codex install failed"]}`,
+		},
+	}
+
+	var out bytes.Buffer
+	err := runConfigure(&out, configureOptions{
+		localRoot:          "projects",
+		localRootSet:       true,
+		remoteRoot:         "projects",
+		remoteRootSet:      true,
+		sshIdentityFile:    identity.PrivatePath,
+		sshIdentityFileSet: true,
+	}, configureDeps{
+		appConfigPath: func() (string, error) {
+			return configPath, nil
+		},
+		userHomeDir: func() (string, error) {
+			return home, nil
+		},
+		sshPublicKey: testSSHPublicKeyFunc(identity),
+		prompter: &fakeConfigurePrompter{
+			canPrompt: true,
+			inputs:    []string{"harish", "harish-personal-server"},
+			passwords: []string{"server-secret", "server-secret"},
+			confirms:  []bool{true},
+		},
+		personalServerProvisioner: personalServerProvisioningGate{
+			newCloudClient: func(string) personalServerCloudClient {
+				return successfulPersonalServerCloudClient()
+			},
+			userHomeDir: func() (string, error) {
+				return home, nil
+			},
+			runSSH: ssh.Run,
+			currentUsername: func() string {
+				return "harish"
+			},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected bootstrap failure error")
+	}
+	if !strings.Contains(err.Error(), "Personal Server Bootstrap failed: apt-get upgrade (exit 1)") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	cfg, err := loadAppConfig(configPath)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if got, want := cfg.PersonalServer, (personalServerConfig{ServerID: 654321, IPv4: "203.0.113.55", IPv6: "2001:db8::55"}); got != want {
+		t.Fatalf("saved Personal Server Configuration mismatch: want %#v, got %#v", want, got)
+	}
+	output := out.String()
+	for _, want := range []string{
+		"Personal Server bootstrap failed.",
+		"Bootstrap failure: apt-get upgrade (exit 1)",
+		"Partial bootstrap failures:",
+		"- Codex install failed",
+		"SSH commands:",
+		"- root IPv4: ssh -i ~/.ssh/id_ed25519 root@203.0.113.55",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected output to contain %q, got %q", want, output)
+		}
+	}
+}
+
+func TestRunConfigureReportsBootstrapTimeoutButKeepsSavedServer(t *testing.T) {
+	home := t.TempDir()
+	mkdirAll(t, filepath.Join(home, "projects"))
+	identity := seedTestSSHIdentity(t, home, ".ssh/id_ed25519", "existing@host", 0o600)
+	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	if err := saveAppConfig(configPath, appConfig{
+		Auth: authConfig{
+			Hetzner: hetznerConfig{Token: "existing-token"},
+		},
+	}); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+
+	ssh := &fakePersonalServerSSHRunner{
+		errors:  []error{nil, errors.New("marker not ready")},
+		outputs: []string{"ready\n"},
+	}
+	var out bytes.Buffer
+	err := runConfigure(&out, configureOptions{
+		localRoot:          "projects",
+		localRootSet:       true,
+		remoteRoot:         "projects",
+		remoteRootSet:      true,
+		sshIdentityFile:    identity.PrivatePath,
+		sshIdentityFileSet: true,
+	}, configureDeps{
+		appConfigPath: func() (string, error) {
+			return configPath, nil
+		},
+		userHomeDir: func() (string, error) {
+			return home, nil
+		},
+		sshPublicKey: testSSHPublicKeyFunc(identity),
+		prompter: &fakeConfigurePrompter{
+			canPrompt: true,
+			inputs:    []string{"harish", "harish-personal-server"},
+			passwords: []string{"server-secret", "server-secret"},
+			confirms:  []bool{true},
+		},
+		personalServerProvisioner: personalServerProvisioningGate{
+			newCloudClient: func(string) personalServerCloudClient {
+				return successfulPersonalServerCloudClient()
+			},
+			userHomeDir: func() (string, error) {
+				return home, nil
+			},
+			runSSH:           ssh.Run,
+			bootstrapTimeout: time.Nanosecond,
+			sleep: func(ctx context.Context, _ time.Duration) error {
+				<-ctx.Done()
+				return ctx.Err()
+			},
+			currentUsername: func() string {
+				return "harish"
+			},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected bootstrap timeout error")
+	}
+	if !strings.Contains(err.Error(), "timed out waiting for Personal Server Bootstrap marker") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	cfg, err := loadAppConfig(configPath)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if got, want := cfg.PersonalServer, (personalServerConfig{ServerID: 654321, IPv4: "203.0.113.55", IPv6: "2001:db8::55"}); got != want {
+		t.Fatalf("saved Personal Server Configuration mismatch: want %#v, got %#v", want, got)
+	}
+	output := out.String()
+	for _, want := range []string{
+		"Personal Server bootstrap failed: timed out waiting for Personal Server Bootstrap marker",
+		"SSH commands:",
+		"- user IPv4: ssh -i ~/.ssh/id_ed25519 harish@203.0.113.55",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected output to contain %q, got %q", want, output)
+		}
 	}
 }
 
@@ -988,6 +1350,7 @@ func TestRunConfigureReusesExistingFirewallAndSSHKey(t *testing.T) {
 			userHomeDir: func() (string, error) {
 				return home, nil
 			},
+			runSSH: newSuccessfulPersonalServerSSHRunner().Run,
 			currentUsername: func() string {
 				return "harish"
 			},
@@ -1400,6 +1763,67 @@ type fakePersonalServerCloudClient struct {
 	waitedActionIDs      []int
 	listLocations        int
 	listServerTypes      int
+}
+
+func successfulPersonalServerCloudClient() *fakePersonalServerCloudClient {
+	return &fakePersonalServerCloudClient{
+		locations: []personalServerLocation{{Name: "ash", Description: "Ashburn, VA, USA"}},
+		serverTypes: []personalServerType{
+			fakePersonalServerType("cx32", "shared", "x86", false, 4, 8, 80, "local", "ash", true, false, "18.50"),
+		},
+		images: []personalServerImage{
+			{Name: "ubuntu-24.04", Type: "system", Status: "available", OSFlavor: "ubuntu", OSVersion: "24.04", Architecture: "x86"},
+		},
+		createdServer: personalServerCloudServer{
+			ID:   654321,
+			IPv4: "203.0.113.55",
+			IPv6: "2001:db8::55",
+		},
+	}
+}
+
+type personalServerSSHCall struct {
+	identityFile string
+	user         string
+	host         string
+	command      string
+}
+
+type fakePersonalServerSSHRunner struct {
+	outputs []string
+	errors  []error
+	calls   []personalServerSSHCall
+}
+
+func newSuccessfulPersonalServerSSHRunner() *fakePersonalServerSSHRunner {
+	return &fakePersonalServerSSHRunner{
+		outputs: []string{
+			"ready\n",
+			`{"status":"success","timestamp":"2026-05-10T12:00:00Z","rebootRequired":false,"toolVersions":{"docker":"Docker version 28.1.0"}}`,
+		},
+	}
+}
+
+func (r *fakePersonalServerSSHRunner) Run(_ context.Context, identityFile string, user string, host string, command string) (string, error) {
+	r.calls = append(r.calls, personalServerSSHCall{
+		identityFile: identityFile,
+		user:         user,
+		host:         host,
+		command:      command,
+	})
+	if len(r.errors) > 0 {
+		err := r.errors[0]
+		r.errors = r.errors[1:]
+		if err != nil {
+			return "", err
+		}
+	}
+	if len(r.outputs) == 0 {
+		return "", nil
+	}
+	output := r.outputs[0]
+	r.outputs = r.outputs[1:]
+	return output, nil
 }
 
 func (c *fakePersonalServerCloudClient) ServerByID(_ context.Context, id int) (personalServerCloudServer, bool, error) {

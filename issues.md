@@ -41,6 +41,7 @@ These issues are written locally instead of being published to an issue tracker.
    - **User stories covered**: 30-40, 47, 72, 78
 
 7. **Poll bootstrap completion and report access**
+   - **Status**: Done
    - **Type**: AFK
    - **Blocked by**: Issue 6
    - **User stories covered**: 55-56, 74-80
@@ -232,6 +233,8 @@ This slice should create a server but does not need to wait for bootstrap comple
 
 ## Issue 7: Poll bootstrap completion and report access
 
+**Status**: Done
+
 ## What to build
 
 After server creation, wait until root SSH first accepts the configured SSH identity, then poll for the Personal Server Bootstrap completion marker over root SSH. The bootstrap timer starts after first root SSH success and runs for at most five minutes, including any automatic reboot downtime. When bootstrap completes, report installed tool versions and SSH commands for both root and the Personal Server User over IPv4 and IPv6.
@@ -240,17 +243,17 @@ If bootstrap hard-fails or times out, keep the saved server identity and report 
 
 ## Acceptance criteria
 
-- [ ] Root SSH polling uses the configured SSH identity.
-- [ ] Five-minute bootstrap timeout starts only after root SSH first accepts.
-- [ ] Temporary SSH disconnects during reboot are tolerated.
-- [ ] Automatic reboot downtime counts against the five-minute timeout.
-- [ ] Completion marker is parsed for status, timestamp, reboot information, tool versions, and partial failures.
-- [ ] Hard failure marker is reported as bootstrap failure while retaining saved server identity.
-- [ ] Timeout is reported as bootstrap failure while retaining saved server identity.
-- [ ] Partial coding agent failures are reported without failing the whole bootstrap.
-- [ ] Successful bootstrap prints installed tool versions from the marker.
-- [ ] Final output prints user and root SSH commands over IPv4 and IPv6, IPv4 first.
-- [ ] Printed SSH commands include `-i` with the configured SSH identity.
+- [x] Root SSH polling uses the configured SSH identity.
+- [x] Five-minute bootstrap timeout starts only after root SSH first accepts.
+- [x] Temporary SSH disconnects during reboot are tolerated.
+- [x] Automatic reboot downtime counts against the five-minute timeout.
+- [x] Completion marker is parsed for status, timestamp, reboot information, tool versions, and partial failures.
+- [x] Hard failure marker is reported as bootstrap failure while retaining saved server identity.
+- [x] Timeout is reported as bootstrap failure while retaining saved server identity.
+- [x] Partial coding agent failures are reported without failing the whole bootstrap.
+- [x] Successful bootstrap prints installed tool versions from the marker.
+- [x] Final output prints user and root SSH commands over IPv4 and IPv6, IPv4 first.
+- [x] Printed SSH commands include `-i` with the configured SSH identity.
 
 ## Blocked by
 

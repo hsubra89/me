@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"io"
 	"math"
@@ -13,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/GehirnInc/crypt/sha512_crypt"
 	"github.com/hetznercloud/hcloud-go/v2/hcloud"
@@ -183,6 +185,10 @@ const (
 type personalServerProvisioningGate struct {
 	newCloudClient     func(token string) personalServerCloudClient
 	saveConfig         func(path string, cfg appConfig) error
+	runSSH             personalServerSSHRunner
+	sleep              func(context.Context, time.Duration) error
+	bootstrapTimeout   time.Duration
+	sshPollInterval    time.Duration
 	userHomeDir        func() (string, error)
 	stat               func(string) (os.FileInfo, error)
 	readFile           func(string) ([]byte, error)
@@ -406,13 +412,240 @@ func (gate personalServerProvisioningGate) createPersonalServer(out io.Writer, a
 
 	fmt.Fprintf(out, "Personal Server created: server %d.\n", server.ID)
 	fmt.Fprintf(out, "Personal Server addresses: %s\n", formatPersonalServerAddresses(server.IPv4, server.IPv6))
-	return nil
+
+	marker, err := gate.waitForPersonalServerBootstrap(ctx, identity, server)
+	if err != nil {
+		fmt.Fprintf(out, "Personal Server bootstrap failed: %v\n", err)
+		writePersonalServerSSHCommands(out, plan, server)
+		return err
+	}
+	return writePersonalServerBootstrapReport(out, marker, plan, server)
 }
 
 const (
-	personalServerFirewallName = "me-personal-server"
-	personalServerSSHKeyName   = "me-personal-server"
+	personalServerFirewallName         = "me-personal-server"
+	personalServerSSHKeyName           = "me-personal-server"
+	personalServerBootstrapMarkerPath  = "/var/lib/me/personal-server-bootstrap.json"
+	defaultPersonalServerBootstrapWait = 5 * time.Minute
+	defaultPersonalServerSSHPollWait   = 5 * time.Second
 )
+
+type personalServerSSHRunner func(ctx context.Context, identityFile string, user string, host string, command string) (string, error)
+
+type personalServerBootstrapMarker struct {
+	Status             string            `json:"status"`
+	Timestamp          string            `json:"timestamp"`
+	Failure            string            `json:"failure"`
+	RebootRequired     bool              `json:"rebootRequired"`
+	ToolVersions       map[string]string `json:"toolVersions"`
+	PartialFailures    []string          `json:"partialFailures"`
+	SkippedGitIdentity []string          `json:"skippedGitIdentity"`
+}
+
+func (gate personalServerProvisioningGate) waitForPersonalServerBootstrap(ctx context.Context, identity sshIdentityCandidate, server personalServerCloudServer) (personalServerBootstrapMarker, error) {
+	host := personalServerBootstrapHost(server)
+	if host == "" {
+		return personalServerBootstrapMarker{}, fmt.Errorf("Personal Server has no reachable public address")
+	}
+
+	runner := gate.personalServerSSHRunner()
+	if err := gate.waitForPersonalServerRootSSH(ctx, runner, identity.IdentityPath, host); err != nil {
+		return personalServerBootstrapMarker{}, err
+	}
+
+	timeout := gate.personalServerBootstrapTimeout()
+	pollCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	for {
+		output, err := runner(pollCtx, identity.IdentityPath, "root", host, "cat "+personalServerBootstrapMarkerPath)
+		if err == nil {
+			marker, parseErr := parsePersonalServerBootstrapMarker(output)
+			if parseErr == nil {
+				return marker, nil
+			}
+		}
+
+		if pollCtx.Err() != nil {
+			return personalServerBootstrapMarker{}, fmt.Errorf("timed out waiting for Personal Server Bootstrap marker after %s", timeout)
+		}
+		if err := gate.personalServerSleep(pollCtx, gate.personalServerSSHPollInterval()); err != nil {
+			return personalServerBootstrapMarker{}, fmt.Errorf("timed out waiting for Personal Server Bootstrap marker after %s", timeout)
+		}
+	}
+}
+
+func (gate personalServerProvisioningGate) waitForPersonalServerRootSSH(ctx context.Context, runner personalServerSSHRunner, identityFile string, host string) error {
+	for {
+		if _, err := runner(ctx, identityFile, "root", host, "true"); err == nil {
+			return nil
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if err := gate.personalServerSleep(ctx, gate.personalServerSSHPollInterval()); err != nil {
+			return err
+		}
+	}
+}
+
+func parsePersonalServerBootstrapMarker(output string) (personalServerBootstrapMarker, error) {
+	var marker personalServerBootstrapMarker
+	if err := json.Unmarshal([]byte(output), &marker); err != nil {
+		return personalServerBootstrapMarker{}, fmt.Errorf("parse Personal Server Bootstrap marker: %w", err)
+	}
+	if strings.TrimSpace(marker.Status) == "" {
+		return personalServerBootstrapMarker{}, fmt.Errorf("Personal Server Bootstrap marker is missing status")
+	}
+	return marker, nil
+}
+
+func writePersonalServerBootstrapReport(out io.Writer, marker personalServerBootstrapMarker, plan personalServerCreationPlan, server personalServerCloudServer) error {
+	switch strings.ToLower(strings.TrimSpace(marker.Status)) {
+	case "success":
+		fmt.Fprintln(out, "Personal Server bootstrap completed.")
+		if strings.TrimSpace(marker.Timestamp) != "" {
+			fmt.Fprintf(out, "Bootstrap timestamp: %s\n", marker.Timestamp)
+		}
+		fmt.Fprintf(out, "Reboot required: %t\n", marker.RebootRequired)
+		writePersonalServerToolVersions(out, marker.ToolVersions)
+		writePersonalServerPartialFailures(out, marker.PartialFailures)
+		writePersonalServerSSHCommands(out, plan, server)
+		return nil
+	case "failed":
+		fmt.Fprintln(out, "Personal Server bootstrap failed.")
+		if strings.TrimSpace(marker.Failure) != "" {
+			fmt.Fprintf(out, "Bootstrap failure: %s\n", marker.Failure)
+		}
+		writePersonalServerPartialFailures(out, marker.PartialFailures)
+		writePersonalServerSSHCommands(out, plan, server)
+		if strings.TrimSpace(marker.Failure) != "" {
+			return fmt.Errorf("Personal Server Bootstrap failed: %s", marker.Failure)
+		}
+		return fmt.Errorf("Personal Server Bootstrap failed")
+	default:
+		writePersonalServerSSHCommands(out, plan, server)
+		return fmt.Errorf("Personal Server Bootstrap marker has unknown status %q", marker.Status)
+	}
+}
+
+func writePersonalServerToolVersions(out io.Writer, versions map[string]string) {
+	if len(versions) == 0 {
+		fmt.Fprintln(out, "Installed tool versions: unavailable")
+		return
+	}
+	fmt.Fprintln(out, "Installed tool versions:")
+	names := make([]string, 0, len(versions))
+	for name, version := range versions {
+		if strings.TrimSpace(version) == "" {
+			continue
+		}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		fmt.Fprintf(out, "- %s: %s\n", name, versions[name])
+	}
+}
+
+func writePersonalServerPartialFailures(out io.Writer, failures []string) {
+	if len(failures) == 0 {
+		return
+	}
+	fmt.Fprintln(out, "Partial bootstrap failures:")
+	for _, failure := range failures {
+		if strings.TrimSpace(failure) == "" {
+			continue
+		}
+		fmt.Fprintf(out, "- %s\n", failure)
+	}
+}
+
+func writePersonalServerSSHCommands(out io.Writer, plan personalServerCreationPlan, server personalServerCloudServer) {
+	fmt.Fprintln(out, "SSH commands:")
+	writePersonalServerSSHCommand(out, "user IPv4", plan.SSHIdentityFile, plan.User, server.IPv4)
+	writePersonalServerSSHCommand(out, "root IPv4", plan.SSHIdentityFile, "root", server.IPv4)
+	writePersonalServerSSHCommand(out, "user IPv6", plan.SSHIdentityFile, plan.User, server.IPv6)
+	writePersonalServerSSHCommand(out, "root IPv6", plan.SSHIdentityFile, "root", server.IPv6)
+}
+
+func writePersonalServerSSHCommand(out io.Writer, label string, identityFile string, user string, host string) {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		fmt.Fprintf(out, "- %s: unavailable\n", label)
+		return
+	}
+	fmt.Fprintf(out, "- %s: ssh -i ~/%s %s@%s\n", label, identityFile, user, personalServerSSHCommandHost(host))
+}
+
+func personalServerBootstrapHost(server personalServerCloudServer) string {
+	if strings.TrimSpace(server.IPv4) != "" {
+		return strings.TrimSpace(server.IPv4)
+	}
+	return strings.TrimSpace(server.IPv6)
+}
+
+func personalServerSSHCommandHost(host string) string {
+	if strings.Contains(host, ":") && !strings.HasPrefix(host, "[") {
+		return "[" + host + "]"
+	}
+	return host
+}
+
+func (gate personalServerProvisioningGate) personalServerSSHRunner() personalServerSSHRunner {
+	if gate.runSSH != nil {
+		return gate.runSSH
+	}
+	return defaultPersonalServerSSHRunner
+}
+
+func defaultPersonalServerSSHRunner(ctx context.Context, identityFile string, user string, host string, command string) (string, error) {
+	sshHost := user + "@" + personalServerSSHCommandHost(host)
+	cmd := exec.CommandContext(ctx, "ssh",
+		"-o", "BatchMode=yes",
+		"-o", "StrictHostKeyChecking=accept-new",
+		"-o", "ConnectTimeout=10",
+		"-i", identityFile,
+		sshHost,
+		command,
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", commandOutputError("ssh", output, err)
+	}
+	return string(output), nil
+}
+
+func (gate personalServerProvisioningGate) personalServerBootstrapTimeout() time.Duration {
+	if gate.bootstrapTimeout > 0 {
+		return gate.bootstrapTimeout
+	}
+	return defaultPersonalServerBootstrapWait
+}
+
+func (gate personalServerProvisioningGate) personalServerSSHPollInterval() time.Duration {
+	if gate.sshPollInterval > 0 {
+		return gate.sshPollInterval
+	}
+	return defaultPersonalServerSSHPollWait
+}
+
+func (gate personalServerProvisioningGate) personalServerSleep(ctx context.Context, duration time.Duration) error {
+	if duration <= 0 {
+		return nil
+	}
+	if gate.sleep != nil {
+		return gate.sleep(ctx, duration)
+	}
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
 
 var personalServerUbuntuVersionPattern = regexp.MustCompile(`\d+(?:\.\d+)*`)
 
