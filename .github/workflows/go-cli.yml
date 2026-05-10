@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - "go/**"
+      - "go/cli/**"
       - ".github/workflows/go-cli.yml"
   pull_request:
     paths:
-      - "go/**"
+      - "go/cli/**"
       - ".github/workflows/go-cli.yml"
 
 jobs:
@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: go
+        working-directory: go/cli
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -24,7 +24,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go/go.mod
+          go-version-file: go/cli/go.mod
 
       - name: Test
         run: go test ./...

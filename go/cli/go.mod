@@ -1,4 +1,4 @@
-module github.com/hsubra89/me/go
+module github.com/hsubra89/me/go/cli
 
 go 1.26.2
 

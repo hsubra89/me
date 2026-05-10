@@ -1,6 +1,6 @@
 # me
 
-A small Cobra-based Go CLI.
+A small Cobra-based Go CLI under `go/cli`.
 
 ## Run
 

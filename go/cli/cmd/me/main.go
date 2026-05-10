@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/hsubra89/me/go/internal/cli"
+	"github.com/hsubra89/me/go/cli/internal/cli"
 )
 
 var (
