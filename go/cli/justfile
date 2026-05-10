@@ -1,0 +1,29 @@
+# List available commands.
+default:
+    @just --list
+
+# Run the CLI. Example: just run version
+run *args:
+    go run ./cmd/me {{args}}
+
+# Format Go sources.
+fmt:
+    go fmt ./...
+
+# Run all tests.
+test:
+    go test ./...
+
+# Build the CLI binary at ./bin/me.
+build:
+    mkdir -p ./bin
+    go build -o ./bin/me ./cmd/me
+
+# Sync go.mod and go.sum with imports.
+tidy:
+    go mod tidy
+
+# Build the CLI binary with release metadata. Example: just release 0.1.0
+release version:
+    mkdir -p ./bin
+    go build -ldflags "-X main.version={{version}} -X main.commit=$(git rev-parse --short HEAD) -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" -o ./bin/me ./cmd/me
