@@ -103,6 +103,102 @@ func TestIdleStatusJSONReportsLeaseStatesFromLeaseDirectory(t *testing.T) {
 	}
 }
 
+func TestIdleStatusHumanReportsEmptyLeaseDirectory(t *testing.T) {
+	leaseDir := t.TempDir()
+
+	t.Setenv("ME_LEASE_DIR", leaseDir)
+	var out bytes.Buffer
+	cmd := NewRootCommand(BuildInfo{})
+	cmd.SetArgs([]string{"idle", "status"})
+	cmd.SetOut(&out)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute idle status: %v", err)
+	}
+
+	got := out.String()
+	assertContains(t, got, "Idle leases: 0 active, 0 idle, 0 stale (0 total)")
+	assertContains(t, got, "Lease directory: "+leaseDir)
+	assertContains(t, got, "No idle lease files found.")
+}
+
+func TestIdleStatusHumanReportsLeaseDetailsReadOnly(t *testing.T) {
+	leaseDir := t.TempDir()
+	now := time.Now().UTC()
+
+	writeTestLease(t, leaseDir, "active", map[string]any{
+		"kind":             "stdio",
+		"id":               "active",
+		"rootPid":          os.Getpid(),
+		"processGroup":     os.Getpid(),
+		"user":             "harish",
+		"workingDirectory": "/home/harish/projects/me",
+		"command":          "codex",
+		"interactive":      true,
+		"startedAt":        now.Add(-5 * time.Minute).Format(time.RFC3339Nano),
+		"updatedAt":        now.Add(-10 * time.Second).Format(time.RFC3339Nano),
+		"lastInputAt":      now.Add(-10 * time.Second).Format(time.RFC3339Nano),
+		"lastOutputAt":     now.Add(-2 * time.Minute).Format(time.RFC3339Nano),
+		"idleAfter":        "30m",
+		"expiresAt":        now.Add(30 * time.Minute).Format(time.RFC3339Nano),
+	})
+	writeTestLease(t, leaseDir, "idle", map[string]any{
+		"kind":             "stdio",
+		"id":               "idle",
+		"rootPid":          os.Getpid(),
+		"workingDirectory": "/home/harish/projects/me",
+		"command":          "bash",
+		"interactive":      true,
+		"updatedAt":        now.Add(-10 * time.Second).Format(time.RFC3339Nano),
+		"lastInputAt":      now.Add(-45 * time.Minute).Format(time.RFC3339Nano),
+		"idleAfter":        "30m",
+		"expiresAt":        now.Add(30 * time.Minute).Format(time.RFC3339Nano),
+	})
+	writeTestLease(t, leaseDir, "stale", map[string]any{
+		"kind":             "stdio",
+		"id":               "stale",
+		"rootPid":          99999999,
+		"workingDirectory": "/tmp",
+		"command":          "claude",
+		"interactive":      true,
+		"updatedAt":        now.Add(-10 * time.Second).Format(time.RFC3339Nano),
+		"lastInputAt":      now.Add(-10 * time.Second).Format(time.RFC3339Nano),
+		"idleAfter":        "30m",
+		"expiresAt":        now.Add(30 * time.Minute).Format(time.RFC3339Nano),
+	})
+	malformedPath := filepath.Join(leaseDir, "malformed.json")
+	if err := os.WriteFile(malformedPath, []byte("{"), 0o644); err != nil {
+		t.Fatalf("write malformed lease: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(leaseDir, "ignored.tmp"), []byte("{"), 0o644); err != nil {
+		t.Fatalf("write ignored temp file: %v", err)
+	}
+
+	t.Setenv("ME_LEASE_DIR", leaseDir)
+	var out bytes.Buffer
+	cmd := NewRootCommand(BuildInfo{})
+	cmd.SetArgs([]string{"idle", "status"})
+	cmd.SetOut(&out)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute idle status: %v", err)
+	}
+
+	got := out.String()
+	assertContains(t, got, "Idle leases: 1 active, 1 idle, 2 stale (4 total)")
+	assertContains(t, got, "Lease directory: "+leaseDir)
+	assertContains(t, got, "- active [stdio] active: command=codex cwd=/home/harish/projects/me reason=terminal activity within idle window")
+	assertContains(t, got, "- idle [stdio] idle: command=bash cwd=/home/harish/projects/me reason=terminal activity older than idle window")
+	assertContains(t, got, "- stale [stdio] stale: command=claude cwd=/tmp reason=root process is not running")
+	assertContains(t, got, "- malformed [-] stale: command=- reason=malformed lease JSON")
+	if strings.Contains(got, "ignored") {
+		t.Fatalf("non-json temp file should be ignored:\n%s", got)
+	}
+	if _, err := os.Stat(malformedPath); err != nil {
+		t.Fatalf("human status should not prune stale leases: %v", err)
+	}
+}
+
 func TestIdleStatusJSONCreatesMissingLeaseDirectory(t *testing.T) {
 	leaseDir := filepath.Join(t.TempDir(), "missing", "leases")
 
@@ -197,6 +293,27 @@ func TestIdleStatusJSONReturnsOperationalDirectoryFailures(t *testing.T) {
 	}
 }
 
+func TestIdleStatusHumanReturnsOperationalDirectoryFailures(t *testing.T) {
+	leasePath := filepath.Join(t.TempDir(), "leases")
+	if err := os.WriteFile(leasePath, []byte("not a directory"), 0o644); err != nil {
+		t.Fatalf("write lease path file: %v", err)
+	}
+
+	t.Setenv("ME_LEASE_DIR", leasePath)
+	var out bytes.Buffer
+	cmd := NewRootCommand(BuildInfo{})
+	cmd.SetArgs([]string{"idle", "status"})
+	cmd.SetOut(&out)
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected operational directory failure")
+	}
+	if !strings.Contains(err.Error(), "create idle lease directory") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func writeTestLease(t *testing.T, dir, id string, fields map[string]any) {
 	t.Helper()
 	data, err := json.Marshal(fields)
@@ -269,4 +386,11 @@ func assertReportedLease(t *testing.T, report testIdleStatusReport, id, state, c
 		t.Fatalf("lease %q should include a state reason", id)
 	}
 	return lease
+}
+
+func assertContains(t *testing.T, got, want string) {
+	t.Helper()
+	if !strings.Contains(got, want) {
+		t.Fatalf("output should contain %q:\n%s", want, got)
+	}
 }

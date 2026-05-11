@@ -51,9 +51,6 @@ func newIdleStatusCommand() *cobra.Command {
 }
 
 func runIdleStatus(w io.Writer, opts idleStatusOptions, deps idleStatusDeps) error {
-	if !opts.json {
-		return errors.New("human-readable idle status is not implemented yet; use --json")
-	}
 	if deps.env == nil {
 		deps.env = os.Getenv
 	}
@@ -71,12 +68,55 @@ func runIdleStatus(w io.Writer, opts idleStatusOptions, deps idleStatusDeps) err
 		return err
 	}
 
+	if !opts.json {
+		return renderHumanIdleStatus(w, report)
+	}
+
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(report); err != nil {
 		return fmt.Errorf("encode idle status: %w", err)
 	}
 	return nil
+}
+
+func renderHumanIdleStatus(w io.Writer, report idleStatusReport) error {
+	var out strings.Builder
+	fmt.Fprintf(&out, "Idle leases: %d active, %d idle, %d stale (%d total)\n",
+		report.Counts.Active,
+		report.Counts.Idle,
+		report.Counts.Stale,
+		report.Counts.Total,
+	)
+	fmt.Fprintf(&out, "Lease directory: %s\n", report.LeaseDirectory)
+	if len(report.Leases) == 0 {
+		out.WriteString("No idle lease files found.\n")
+		_, err := io.WriteString(w, out.String())
+		return err
+	}
+
+	for _, lease := range report.Leases {
+		fmt.Fprintf(&out, "- %s [%s] %s: command=%s",
+			lease.ID,
+			humanField(lease.Kind),
+			lease.State,
+			humanField(lease.Command),
+		)
+		if lease.WorkingDirectory != "" {
+			fmt.Fprintf(&out, " cwd=%s", lease.WorkingDirectory)
+		}
+		fmt.Fprintf(&out, " reason=%s\n", lease.Reason)
+	}
+
+	_, err := io.WriteString(w, out.String())
+	return err
+}
+
+func humanField(value string) string {
+	if value == "" {
+		return "-"
+	}
+	return value
 }
 
 func readIdleStatusReport(deps idleStatusDeps) (idleStatusReport, error) {

@@ -14,7 +14,7 @@ Default label: `ready-for-agent`
 
 2. **Title**: Render human-readable Idle Lease status
    **Type**: AFK
-   **Status**: Ready
+   **Status**: Done
    **Blocked by**: Issue 1
    **User stories covered**: 22-24, 26-27
 
@@ -86,7 +86,9 @@ None - can start immediately.
 
 Type: AFK
 
-Label: `ready-for-agent`
+Label: `done`
+
+Status: Done
 
 ### What to build
 
@@ -96,14 +98,14 @@ This slice must remain read-only: status may inspect and report lease files, but
 
 ### Acceptance criteria
 
-- [ ] `me idle status` renders a concise human-readable summary.
-- [ ] The summary includes counts for active, idle, and stale leases.
-- [ ] Per-lease output includes the lease ID, kind, state, command, working directory when present, and a state reason.
-- [ ] Stale leases include the reason they were classified as stale.
-- [ ] The command does not remove stale lease files.
-- [ ] The command exits zero when the status report is produced successfully, even when idle or stale leases exist.
-- [ ] Operational failures exit non-zero.
-- [ ] Tests verify representative active, idle, stale, empty-directory, and malformed-lease output.
+- [x] `me idle status` renders a concise human-readable summary.
+- [x] The summary includes counts for active, idle, and stale leases.
+- [x] Per-lease output includes the lease ID, kind, state, command, working directory when present, and a state reason.
+- [x] Stale leases include the reason they were classified as stale.
+- [x] The command does not remove stale lease files.
+- [x] The command exits zero when the status report is produced successfully, even when idle or stale leases exist.
+- [x] Operational failures exit non-zero.
+- [x] Tests verify representative active, idle, stale, empty-directory, and malformed-lease output.
 
 ### Blocked by
 
