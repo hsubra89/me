@@ -14,6 +14,10 @@ fmt:
 test:
     go test ./...
 
+# Run guarded live Hetzner Personal Server validation.
+live-hetzner:
+    ME_LIVE_HETZNER=1 go test ./internal/cli -run TestLivePersonalServerProvisioning -count=1 -timeout=30m -v
+
 # Build the CLI binary at ./bin/me.
 build:
     mkdir -p ./bin

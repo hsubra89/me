@@ -121,6 +121,46 @@ func (huhPrompter) SelectSSHIdentity(choices []sshIdentityPromptChoice, selected
 	return choices[selected], nil
 }
 
+func (huhPrompter) SelectPersonalServerLocation(choices []personalServerLocationChoice, selected int) (personalServerLocationChoice, error) {
+	options := make([]huh.Option[int], 0, len(choices))
+	for index, choice := range choices {
+		options = append(options, huh.NewOption(choice.Label, index))
+	}
+
+	if selected < 0 || selected >= len(choices) {
+		selected = 0
+	}
+	if err := huh.NewSelect[int]().
+		Title("Select Personal Server Location").
+		Options(options...).
+		Value(&selected).
+		Run(); err != nil {
+		return personalServerLocationChoice{}, err
+	}
+
+	return choices[selected], nil
+}
+
+func (huhPrompter) SelectPersonalServerType(choices []personalServerTypeChoice, selected int) (personalServerTypeChoice, error) {
+	options := make([]huh.Option[int], 0, len(choices))
+	for index, choice := range choices {
+		options = append(options, huh.NewOption(choice.Label, index))
+	}
+
+	if selected < 0 || selected >= len(choices) {
+		selected = 0
+	}
+	if err := huh.NewSelect[int]().
+		Title("Select Personal Server Type").
+		Options(options...).
+		Value(&selected).
+		Run(); err != nil {
+		return personalServerTypeChoice{}, err
+	}
+
+	return choices[selected], nil
+}
+
 func isTerminal(file *os.File) bool {
 	return file != nil && term.IsTerminal(file.Fd())
 }

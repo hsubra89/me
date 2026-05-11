@@ -9,9 +9,10 @@ import (
 )
 
 type appConfig struct {
-	Auth     authConfig     `json:"auth,omitempty"`
-	Projects projectsConfig `json:"projects,omitempty"`
-	SSH      sshConfig      `json:"ssh,omitempty"`
+	Auth           authConfig           `json:"auth,omitempty"`
+	Projects       projectsConfig       `json:"projects,omitempty"`
+	SSH            sshConfig            `json:"ssh,omitempty"`
+	PersonalServer personalServerConfig `json:"personalServer,omitempty"`
 }
 
 type authConfig struct {
@@ -31,11 +32,18 @@ type sshConfig struct {
 	IdentityFile string `json:"identityFile,omitempty"`
 }
 
+type personalServerConfig struct {
+	ServerID int    `json:"serverID,omitempty"`
+	IPv4     string `json:"ipv4,omitempty"`
+	IPv6     string `json:"ipv6,omitempty"`
+}
+
 func (cfg appConfig) MarshalJSON() ([]byte, error) {
 	type appConfigJSON struct {
-		Auth     *authConfig     `json:"auth,omitempty"`
-		Projects *projectsConfig `json:"projects,omitempty"`
-		SSH      *sshConfig      `json:"ssh,omitempty"`
+		Auth           *authConfig           `json:"auth,omitempty"`
+		Projects       *projectsConfig       `json:"projects,omitempty"`
+		SSH            *sshConfig            `json:"ssh,omitempty"`
+		PersonalServer *personalServerConfig `json:"personalServer,omitempty"`
 	}
 
 	var out appConfigJSON
@@ -47,6 +55,9 @@ func (cfg appConfig) MarshalJSON() ([]byte, error) {
 	}
 	if !cfg.SSH.isZero() {
 		out.SSH = &cfg.SSH
+	}
+	if !cfg.PersonalServer.isZero() {
+		out.PersonalServer = &cfg.PersonalServer
 	}
 
 	return json.Marshal(out)
@@ -66,6 +77,10 @@ func (cfg projectsConfig) isZero() bool {
 
 func (cfg sshConfig) isZero() bool {
 	return cfg.IdentityFile == ""
+}
+
+func (cfg personalServerConfig) isZero() bool {
+	return cfg.ServerID == 0 && cfg.IPv4 == "" && cfg.IPv6 == ""
 }
 
 func defaultAppConfigPath(env func(string) string) (string, error) {

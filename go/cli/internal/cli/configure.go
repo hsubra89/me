@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -23,23 +24,25 @@ type configureOptions struct {
 }
 
 type configureDeps struct {
-	appConfigPath      func() (string, error)
-	userHomeDir        func() (string, error)
-	workingDir         func() (string, error)
-	gitRoot            func(string) (string, error)
-	stat               func(string) (os.FileInfo, error)
-	readDir            func(string) ([]os.DirEntry, error)
-	readFile           func(string) ([]byte, error)
-	writeFile          func(string, []byte, os.FileMode) error
-	mkdirAll           func(string, os.FileMode) error
-	chmod              func(string, os.FileMode) error
-	sshPublicKey       func(string) (string, error)
-	generateSSHKeyPair func(string, string, string) error
-	sshAgentList       func() (string, error)
-	sshAgentAdd        func(string) error
-	hostname           func() (string, error)
-	currentUsername    func() string
-	prompter           configurePrompter
+	ctx                       context.Context
+	appConfigPath             func() (string, error)
+	userHomeDir               func() (string, error)
+	workingDir                func() (string, error)
+	gitRoot                   func(string) (string, error)
+	stat                      func(string) (os.FileInfo, error)
+	readDir                   func(string) ([]os.DirEntry, error)
+	readFile                  func(string) ([]byte, error)
+	writeFile                 func(string, []byte, os.FileMode) error
+	mkdirAll                  func(string, os.FileMode) error
+	chmod                     func(string, os.FileMode) error
+	sshPublicKey              func(string) (string, error)
+	generateSSHKeyPair        func(string, string, string) error
+	sshAgentList              func() (string, error)
+	sshAgentAdd               func(string) error
+	hostname                  func() (string, error)
+	currentUsername           func() string
+	prompter                  configurePrompter
+	personalServerProvisioner personalServerProvisioner
 }
 
 type configurePrompter interface {
@@ -48,6 +51,8 @@ type configurePrompter interface {
 	Input(title string, defaultValue string, validate func(string) error) (string, error)
 	Password(title string) (string, error)
 	SelectSSHIdentity(choices []sshIdentityPromptChoice, selected int) (sshIdentityPromptChoice, error)
+	SelectPersonalServerLocation(choices []personalServerLocationChoice, selected int) (personalServerLocationChoice, error)
+	SelectPersonalServerType(choices []personalServerTypeChoice, selected int) (personalServerTypeChoice, error)
 }
 
 func newConfigureCommand() *cobra.Command {
@@ -61,7 +66,9 @@ func newConfigureCommand() *cobra.Command {
 			opts.localRootSet = cmd.Flags().Changed("local-root")
 			opts.remoteRootSet = cmd.Flags().Changed("remote-root")
 			opts.sshIdentityFileSet = cmd.Flags().Changed("ssh-identity-file")
-			return runConfigure(cmd.OutOrStdout(), opts, defaultConfigureDeps())
+			deps := defaultConfigureDeps()
+			deps.ctx = cmd.Context()
+			return runConfigure(cmd.OutOrStdout(), opts, deps)
 		},
 	}
 
@@ -175,7 +182,13 @@ func runConfigure(out io.Writer, opts configureOptions, deps configureDeps) erro
 	} else {
 		fmt.Fprintln(out, "SSH identity: not configured")
 	}
-	return sshErr
+	if sshErr != nil {
+		return sshErr
+	}
+	if personalServerErr := deps.personalServerProvisioner.Configure(deps.ctx, out, appConfigPath, cfg, deps.prompter); personalServerErr != nil {
+		return personalServerErr
+	}
+	return nil
 }
 
 func configureLocalRoot(opts configureOptions, cfg appConfig, home string, deps configureDeps) (string, error) {
@@ -401,6 +414,9 @@ func nonEmptyMessages(messages ...string) []string {
 }
 
 func fillConfigureDeps(deps configureDeps) configureDeps {
+	if deps.ctx == nil {
+		deps.ctx = context.Background()
+	}
 	if deps.appConfigPath == nil {
 		env := os.Getenv
 		deps.appConfigPath = func() (string, error) {
@@ -478,6 +494,17 @@ func fillConfigureDeps(deps configureDeps) configureDeps {
 	}
 	if deps.prompter == nil {
 		deps.prompter = huhPrompter{}
+	}
+	if deps.personalServerProvisioner == nil {
+		deps.personalServerProvisioner = personalServerProvisioningGate{
+			userHomeDir:     deps.userHomeDir,
+			stat:            deps.stat,
+			readFile:        deps.readFile,
+			writeFile:       deps.writeFile,
+			chmod:           deps.chmod,
+			sshPublicKey:    deps.sshPublicKey,
+			currentUsername: deps.currentUsername,
+		}
 	}
 	return deps
 }

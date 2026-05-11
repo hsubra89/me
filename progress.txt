@@ -1,0 +1,80 @@
+2026-05-10 - Completed Issue 1: Persist and gate Personal Server Configuration.
+
+- Added the top-level Personal Server Configuration shape to app config, saving only `serverID`, `ipv4`, and `ipv6`, and omitting it when empty.
+- Added a separate Personal Server provisioning gate that runs after local roots and SSH identity are saved.
+- `me configure` now skips Personal Server creation with clear messages when SSH identity is missing, Hetzner Credentials are missing, or configure is non-interactive.
+- Added tests for config serialization, local save-before-branch sequencing, missing Hetzner Credentials, missing SSH identity, and non-interactive gating.
+- Verified with `go test ./...` from `go/cli`.
+
+2026-05-10 - Completed Issue 2: Verify existing Personal Server state.
+
+- Added saved Personal Server ID verification through a small Hetzner cloud-client boundary backed by `hcloud-go/v2`.
+- `me configure` now reports an existing configured Personal Server with saved and current IP addresses instead of continuing toward creation.
+- Stale Personal Server Configuration now prompts before clearing in interactive mode, and fails without clearing in non-interactive mode.
+- Preserved the no-auto-adoption rule when no Personal Server Configuration is saved, and verified `HCLOUD_ENDPOINT` override behavior with a local HTTP server test.
+- Verified with `go test ./...` from `go/cli`.
+
+2026-05-10 - Completed Issue 3: Preview Location and Server Type selection.
+
+- Added interactive Personal Server Location and Server Type preview prompts after prerequisites are ready.
+- Location choices are sorted by code, labeled with code plus geography, and default to `ash` when available.
+- Server Type choices are filtered to non-deprecated x86 types explicitly available in the selected Location, labeled without prices, and default near 21 EUR monthly gross with the agreed tie-breaks.
+- If a selected Location has no eligible Server Types, `configure` returns to Location selection; declining creation saves no transient Personal Server choices.
+- Verified with `go test ./...` from `go/cli`.
+
+2026-05-10 - Completed Issue 4: Collect Personal Server creation inputs and confirmation.
+
+- Added Personal Server User normalization and prompting, DNS-label-style server name validation, confirmed non-empty sudo password collection, and SHA-512 crypt password hashing without saving or printing password material.
+- Added Git identity collection with global Git config preferred over repo-local fallback, and skipped-value reporting when `user.name` or `user.email` is unavailable.
+- Replaced the temporary create prompt with a full pre-create plan summary covering Location, Server Type, server name, Personal Server User, SSH/firewall/network details, remote project root, grouped install plan, Git identity, and maximum monthly gross EUR price or unavailable pricing.
+- Declining final confirmation still creates no cloud resources and saves no transient Personal Server choices; accepting still stops at the later creation slice.
+- Verified with `go test ./...` from `go/cli`.
+
+2026-05-10 - Completed Issue 5: Render Personal Server Bootstrap cloud-init.
+
+- Added a typed Personal Server Bootstrap cloud-init renderer using the YAML library, with inputs for the Personal Server User, password hash, SSH public key, remote project root, Git identity, and bootstrap tool plan.
+- The rendered cloud-init creates root and Personal Server User SSH authorization, password-backed sudo, Docker group membership, and a root-owned bootstrap script invoked by cloud-init.
+- The bootstrap script installs security updates, unattended upgrades, Docker from Docker's apt repository, user-owned Homebrew tools, nvm-managed LTS Node/npm, Codex, and Claude Code; coding agent failures are recorded as partial failures.
+- The completion marker records status, timestamp, reboot requirement, installed tool versions, skipped Git identity values, and partial failures.
+- Verified with `go test ./...` from `go/cli`.
+
+2026-05-10 - Completed Issue 6: Create Hetzner resources and save server identity.
+
+- Connected confirmed Personal Server creation to the Hetzner client boundary, including duplicate server-name checks, latest non-deprecated Ubuntu image selection, reusable firewall creation, SSH key reuse by Hetzner fingerprint, server creation with IPv4/IPv6 public networking, labels, and rendered cloud-init user data.
+- Added the `hcloud-go` adapter methods for servers, images, firewalls, SSH keys, and action waiting while preserving `HCLOUD_ENDPOINT` support.
+- Saved Personal Server Configuration with only server ID, IPv4, and assigned IPv6 after create actions complete, and left supporting resources unmanaged on downstream server creation failures.
+- Added behavior tests for the successful creation path, duplicate names, missing Ubuntu images, and reuse of existing firewall and SSH key resources.
+- Verified with `go test ./...` and `go vet ./...` from `go/cli`.
+
+2026-05-10 - Completed Issue 7: Poll bootstrap completion and report access.
+
+- Added root SSH readiness polling through a testable SSH runner using the configured SSH identity before bootstrap marker polling begins.
+- Added five-minute bootstrap marker polling after root SSH first accepts, with temporary SSH disconnects tolerated so reboot downtime counts against the bootstrap timeout.
+- Parsed the Personal Server Bootstrap marker for status, timestamp, reboot requirement, installed tool versions, and partial failures.
+- Reported successful bootstrap versions and partial coding-agent failures without failing the whole provisioning path.
+- Reported hard bootstrap failures and timeouts while preserving the saved Personal Server Configuration and printing inspection SSH commands.
+- Printed user and root SSH commands over IPv4 and IPv6, IPv4 first, with `-i` pointing at the configured SSH identity.
+- Verified with `go test ./...` and `go vet ./...` from `go/cli`.
+
+2026-05-10 - Completed Issue 8: Harden failure handling and cancellation.
+
+- Threaded command cancellation through the Personal Server provisioning path so Hetzner API calls, action waiting, root SSH polling, and bootstrap marker polling receive the command context.
+- Preserved Personal Server Configuration when cancellation happens after Hetzner accepts server creation, while still leaving supporting resources unmanaged on cancellation or failure.
+- Kept cancellation before server creation from saving Personal Server Configuration.
+- Verified unavailable pricing still reports `Maximum monthly price: unavailable` and allows confirmed creation to proceed.
+- Verified with `go test ./...` and `go vet ./...` from `go/cli`.
+
+2026-05-10 - Completed Issue 9: Validate Personal Server provisioning against live Hetzner.
+
+- Added a guarded live validation harness that loads `.env.local` only when `ME_LIVE_HETZNER=1`, maps `HETZNER_API_KEY` into isolated Hetzner Credentials, and drives the real configure provisioning path with temporary config, home, SSH identity, known_hosts, and server name values.
+- Documented `just live-hetzner`, expected billable-resource risk, server cleanup, and intentionally retained supporting firewall/SSH-key behavior.
+- Live validation found and fixed two production issues: bootstrap marker version probes now run Homebrew, nvm, Node, npm, Codex, and Claude checks in the Personal Server User environment, and created Hetzner SSH key names are fingerprint-scoped to avoid name uniqueness conflicts while preserving reuse by fingerprint.
+- Verified the live path created a test Personal Server, waited for bootstrap, checked root/user SSH, user/group/root setup, remote project root ownership, Docker/Compose, Homebrew tools, nvm/Node default, and Git identity; the test server was deleted afterwards.
+- Verified with `go test ./...`, `go vet ./...`, and `ME_LIVE_HETZNER=1 go test ./internal/cli -run TestLivePersonalServerProvisioning -count=1 -timeout=30m -v` from `go/cli`.
+
+2026-05-10 - Completed Issue 10: Document Personal Server provisioning behavior.
+
+- Updated `go/cli/README.md` with the `me auth hetzner` prerequisite, interactive-only Personal Server creation behavior, existing-server verification, and saved Personal Server Configuration shape.
+- Documented Location and Server Type selection, final pricing confirmation, grouped install plan, Git identity handling, Docker group access, bootstrap waiting, SSH command output, reusable firewall behavior, and supporting-resource cleanup boundaries.
+- Documented out-of-scope behavior for SSH aliases, project cloning or syncing, dotfiles, GitHub credentials/authentication, and Rust toolchain installation.
+- Verified with `go test ./...` and `go vet ./...` from `go/cli`.
