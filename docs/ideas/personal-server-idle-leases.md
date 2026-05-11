@@ -41,7 +41,17 @@ development and tests can override the lease directory:
 ME_LEASE_DIR=/tmp/me-leases
 ```
 
-Each lease is a small JSON file named by a generated lease ID:
+The CLI should create the lease directory when it is missing and the current
+user has permission to create it. On a Personal Server, `/run/me/idle/leases`
+should still be created by Personal Server Bootstrap or a future systemd
+tmpfiles configuration with the right owner and permissions, because the
+Personal Server User usually cannot create `/run/me` directly. If directory
+creation fails with permission denied, the CLI should report a setup error that
+the runtime lease directory must be created by Personal Server Bootstrap or
+systemd.
+
+Each lease is a small JSON file named by a generated lease ID with a `.json`
+extension:
 
 ```json
 {
@@ -50,7 +60,7 @@ Each lease is a small JSON file named by a generated lease ID:
   "rootPid": 12345,
   "processGroup": 12345,
   "user": "harish",
-  "repo": "/home/harish/projects/example",
+  "workingDirectory": "/home/harish/projects/example",
   "command": "codex",
   "interactive": true,
   "startedAt": "2026-05-10T18:00:00Z",
@@ -62,6 +72,15 @@ Each lease is a small JSON file named by a generated lease ID:
   "expiresAt": "2026-05-10T19:00:00Z"
 }
 ```
+
+Lease files should be written with `0644` permissions and contain no secrets.
+The `command` field is display metadata and should store only `argv[0]`, not the
+full command arguments.
+
+Lease writers should update files atomically by writing a temporary file in the
+lease directory, setting the final file permissions, and renaming it over the
+lease path. Lease readers should ignore non-`.json` files so leftover temporary
+files do not affect status.
 
 The idle agent ignores and removes stale lease files when the root process is
 gone, the heartbeat is too old, or the lease has passed `expiresAt`.

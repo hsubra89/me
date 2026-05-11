@@ -40,6 +40,14 @@ _Avoid_: size, plan, instance type
 The first-boot cloud-init process that creates the **Personal Server User** and installs the expected development tools.
 _Avoid_: setup script, install script
 
+**Idle Lease**:
+A renewable runtime claim that keeps a **Personal Server** awake while there is recent evidence of user-triggered work.
+_Avoid_: lock, keepalive, inhibitor
+
+**Stdio Lease**:
+An **Idle Lease** for an interactive command whose activity is evidenced by recent terminal input or output.
+_Avoid_: prompt lease, terminal lock
+
 ## Relationships
 
 - A **Personal Server** trusts the configured SSH identity for both root and user login.
@@ -118,6 +126,14 @@ _Avoid_: setup script, install script
 - Claude Code is installed as the **Personal Server User** with its official installer script.
 - Coding agent installation failures do not fail the **Personal Server Bootstrap**; they are reported as partial failures.
 - **Personal Server Bootstrap** hard-fails system update/security setup, user creation, SSH authorization, remote project root creation, Homebrew, Docker, core Homebrew tools, nvm, and LTS Node/npm setup.
+- A **Stdio Lease** is active only while the wrapped command still exists and terminal input or output is recent.
+- A quiet **Stdio Lease** can become idle while the wrapped command is still waiting at a prompt.
+- A completed **Stdio Lease** is removed on normal wrapper exit.
+- An expired **Idle Lease** is stale, not merely idle.
+- **Idle Lease** heartbeat is distinct from terminal activity.
+- A **Stdio Lease** defaults to a 30 minute idle window.
+- `me idle status` reports **Idle Lease** state without removing lease files.
+- A **Stdio Lease** requires a terminal-backed stdin and stdout.
 
 ## Example dialogue
 
@@ -203,8 +219,11 @@ _Avoid_: setup script, install script
 > **Domain expert:** "No — run the official installer as the **Personal Server User**."
 > **Dev:** "Should the image be limited to Ubuntu LTS?"
 > **Domain expert:** "No — use Hetzner's latest Ubuntu image and apply the latest security updates during bootstrap."
+> **Dev:** "Should an open Codex prompt keep the **Personal Server** awake forever?"
+> **Domain expert:** "No — protect it with a **Stdio Lease**, and let the lease become idle when terminal input and output have both been quiet long enough."
 
 ## Flagged ambiguities
 
 - "remote machine" and "default server" both refer to **Personal Server** in this context.
 - "region" was used to mean **Location** — resolved: the CLI uses **Location** everywhere.
+- "lease" does not mean a permanent lock — resolved: an **Idle Lease** is renewable evidence of recent activity.
