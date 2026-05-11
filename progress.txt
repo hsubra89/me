@@ -1,0 +1,3 @@
+2026-05-11T07:30:57Z - Completed Issue 1, "Report Idle Lease State From JSON Lease Files".
+Implemented `me idle status --json` with runtime lease directory resolution, `ME_LEASE_DIR` override, missing-directory creation, JSON-only lease reads, stale malformed-file reporting, process/expiry/heartbeat/activity classification, and structured JSON counts/details.
+Verification: `go test ./...` from `go/cli` passed.

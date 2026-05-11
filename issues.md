@@ -8,31 +8,37 @@ Default label: `ready-for-agent`
 
 1. **Title**: Report Idle Lease state from JSON lease files
    **Type**: AFK
+   **Status**: Done
    **Blocked by**: None
    **User stories covered**: 15-18, 21-31, 35-36, 38
 
 2. **Title**: Render human-readable Idle Lease status
    **Type**: AFK
+   **Status**: Ready
    **Blocked by**: Issue 1
    **User stories covered**: 22-24, 26-27
 
 3. **Title**: Run stdio commands under a PTY
    **Type**: AFK
+   **Status**: Ready
    **Blocked by**: None
    **User stories covered**: 7-10, 13, 33-35, 37
 
 4. **Title**: Create and clean up Stdio Lease files during a PTY run
    **Type**: AFK
+   **Status**: Blocked
    **Blocked by**: Issues 1 and 3
    **User stories covered**: 14, 16-21, 28, 30, 32, 35, 37
 
 5. **Title**: Renew Stdio Leases from terminal input and output
    **Type**: AFK
+   **Status**: Blocked
    **Blocked by**: Issues 1, 2, and 4
    **User stories covered**: 1-6, 22-25, 30-31, 38
 
 6. **Title**: Preserve interactive terminal controls for stdio sessions
    **Type**: AFK
+   **Status**: Blocked
    **Blocked by**: Issue 3
    **User stories covered**: 10-12, 37
 
@@ -40,7 +46,9 @@ Default label: `ready-for-agent`
 
 Type: AFK
 
-Label: `ready-for-agent`
+Label: `done`
+
+Status: Done
 
 ### What to build
 
@@ -50,25 +58,25 @@ This slice should be verifiable entirely from fixture lease files. It should not
 
 ### Acceptance criteria
 
-- [ ] `me idle status --json` reads lease files from the default runtime lease directory.
-- [ ] `ME_LEASE_DIR` overrides the runtime lease directory.
-- [ ] A missing lease directory is created when the current user has permission.
-- [ ] Permission failures while creating the runtime lease directory produce a setup error explaining that Personal Server Bootstrap or systemd must create it.
-- [ ] Only files ending in `.json` are considered leases.
-- [ ] Non-JSON files are ignored.
-- [ ] Valid stdio lease JSON files are decoded into the lease model.
-- [ ] The lease model uses `workingDirectory`, not `repo`.
-- [ ] The `command` field is treated as display metadata.
-- [ ] A lease with a live `rootPid` and recent terminal activity is reported as `active`.
-- [ ] A lease with a live `rootPid` but old terminal activity is reported as `idle`.
-- [ ] A lease with a missing root process is reported as `stale`.
-- [ ] A lease whose `expiresAt` is in the past is reported as `stale`, not `idle`.
-- [ ] A lease whose heartbeat is too old is reported as `stale`.
-- [ ] Malformed lease JSON is reported as `stale` with a useful reason.
-- [ ] The JSON response includes `leaseDirectory`, `now`, state counts, and per-lease details.
-- [ ] `me idle status --json` exits zero when the status report is produced successfully, even when idle or stale leases exist.
-- [ ] Operational failures exit non-zero.
-- [ ] Tests cover active, idle, stale, malformed, ignored temp files, directory override, missing-directory creation, and exit behavior.
+- [x] `me idle status --json` reads lease files from the default runtime lease directory.
+- [x] `ME_LEASE_DIR` overrides the runtime lease directory.
+- [x] A missing lease directory is created when the current user has permission.
+- [x] Permission failures while creating the runtime lease directory produce a setup error explaining that Personal Server Bootstrap or systemd must create it.
+- [x] Only files ending in `.json` are considered leases.
+- [x] Non-JSON files are ignored.
+- [x] Valid stdio lease JSON files are decoded into the lease model.
+- [x] The lease model uses `workingDirectory`, not `repo`.
+- [x] The `command` field is treated as display metadata.
+- [x] A lease with a live `rootPid` and recent terminal activity is reported as `active`.
+- [x] A lease with a live `rootPid` but old terminal activity is reported as `idle`.
+- [x] A lease with a missing root process is reported as `stale`.
+- [x] A lease whose `expiresAt` is in the past is reported as `stale`, not `idle`.
+- [x] A lease whose heartbeat is too old is reported as `stale`.
+- [x] Malformed lease JSON is reported as `stale` with a useful reason.
+- [x] The JSON response includes `leaseDirectory`, `now`, state counts, and per-lease details.
+- [x] `me idle status --json` exits zero when the status report is produced successfully, even when idle or stale leases exist.
+- [x] Operational failures exit non-zero.
+- [x] Tests cover active, idle, stale, malformed, ignored temp files, directory override, missing-directory creation, and exit behavior.
 
 ### Blocked by
 
