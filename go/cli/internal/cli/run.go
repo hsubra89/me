@@ -15,7 +15,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const defaultStdioIdleAfter = 30 * time.Minute
+const (
+	defaultStdioIdleAfter = 30 * time.Minute
+	stdioOutputDrainGrace = 200 * time.Millisecond
+)
 
 type runOptions struct {
 	stdio         bool
@@ -138,6 +141,15 @@ func runStdioCommand(req stdioRunRequest) error {
 		return fmt.Errorf("create stdio idle lease: %w", err)
 	}
 
+	restoreTerminal, err := prepareStdioTerminal(req.Stdin, ptmx)
+	if err != nil {
+		_ = leaseSession.close()
+		_ = ptmx.Close()
+		_ = child.Process.Kill()
+		_ = child.Wait()
+		return fmt.Errorf("prepare stdio terminal: %w", err)
+	}
+
 	outputDone := make(chan error, 1)
 	go func() {
 		_, err := io.Copy(stdioActivityWriter{
@@ -158,8 +170,9 @@ func runStdioCommand(req stdioRunRequest) error {
 	}()
 
 	waitErr := child.Wait()
+	outputErr := waitForStdioPTYOutput(ptmx, outputDone)
 	_ = ptmx.Close()
-	outputErr := <-outputDone
+	restoreErr := restoreTerminal()
 	cleanupErr := leaseSession.close()
 
 	if waitErr != nil {
@@ -172,10 +185,26 @@ func runStdioCommand(req stdioRunRequest) error {
 	if outputErr != nil {
 		return fmt.Errorf("copy PTY output: %w", outputErr)
 	}
+	if restoreErr != nil {
+		return restoreErr
+	}
 	if cleanupErr != nil {
 		return cleanupErr
 	}
 	return nil
+}
+
+func waitForStdioPTYOutput(ptmx *os.File, outputDone <-chan error) error {
+	timer := time.NewTimer(stdioOutputDrainGrace)
+	defer timer.Stop()
+
+	select {
+	case err := <-outputDone:
+		return err
+	case <-timer.C:
+		_ = ptmx.Close()
+		return <-outputDone
+	}
 }
 
 func isIgnorablePTYCopyError(err error) bool {

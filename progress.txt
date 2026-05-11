@@ -17,3 +17,7 @@ Verification: `go test ./...` from `go/cli` passed; `GOOS=windows GOARCH=amd64 g
 2026-05-11T08:00:37Z - Completed Issue 5, "Renew Stdio Leases From Terminal Input and Output".
 Implemented PTY activity renewal for Stdio Leases: successful user input updates `lastInputAt`, child output updates `lastOutputAt`, meaningful idle-to-active activity flushes promptly, continuing activity is batched until heartbeat flushes, and live quiet sessions report idle rather than stale after `idleAfter`.
 Verification: `go test ./...` from `go/cli` passed; `GOOS=windows GOARCH=amd64 go test -c -o /tmp/me-cli-windows.test ./internal/cli`, `GOOS=darwin GOARCH=arm64 go test -c -o /tmp/me-cli-darwin.test ./internal/cli`, and `git diff --check` passed.
+
+2026-05-11T08:07:20Z - Completed Issue 6, "Preserve Interactive Terminal Controls For Stdio Sessions".
+Implemented terminal-fidelity behavior for `me run --stdio`: user terminals enter raw mode while the wrapped PTY command runs, Ctrl-C is delivered through the child PTY instead of handled by the wrapper, terminal state is restored after normal and failed child exits, SIGWINCH resize events are forwarded to the child PTY, trailing PTY output drains before close, and Ctrl-C-triggered child exit still cleans up the Stdio Lease.
+Verification: `go test ./...` from `go/cli` passed; `GOOS=windows GOARCH=amd64 go test -c -o /tmp/me-cli-windows.test ./internal/cli`, `GOOS=darwin GOARCH=arm64 go test -c -o /tmp/me-cli-darwin.test ./internal/cli`, and `git diff --check` passed.

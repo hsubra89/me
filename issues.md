@@ -38,7 +38,7 @@ Default label: `ready-for-agent`
 
 6. **Title**: Preserve interactive terminal controls for stdio sessions
    **Type**: AFK
-   **Status**: Ready
+   **Status**: Done
    **Blocked by**: None
    **User stories covered**: 10-12, 37
 
@@ -217,9 +217,9 @@ None - Issues 1, 2, and 4 are complete.
 
 Type: AFK
 
-Label: `ready-for-agent`
+Label: `done`
 
-Status: Ready
+Status: Done
 
 ### What to build
 
@@ -229,15 +229,15 @@ This slice is about preserving interactive behavior for shells, Codex, Claude Co
 
 ### Acceptance criteria
 
-- [ ] Ctrl-C is passed through to the child process through the PTY.
-- [ ] The wrapper does not independently delete or kill the session on Ctrl-C unless the child exits.
-- [ ] Lease cleanup still happens when the child exits after Ctrl-C.
-- [ ] Terminal resize events are forwarded to the child PTY.
-- [ ] Resize forwarding is structured so it can be tested without relying only on manual inspection.
-- [ ] Raw terminal mode is restored when the wrapper exits.
-- [ ] Tests cover Ctrl-C passthrough where practical.
-- [ ] Tests cover resize forwarding through a small integration test or a testable forwarding seam.
-- [ ] Tests cover terminal mode restoration on normal exit and child failure where practical.
+- [x] Ctrl-C is passed through to the child process through the PTY.
+- [x] The wrapper does not independently delete or kill the session on Ctrl-C unless the child exits.
+- [x] Lease cleanup still happens when the child exits after Ctrl-C.
+- [x] Terminal resize events are forwarded to the child PTY.
+- [x] Resize forwarding is structured so it can be tested without relying only on manual inspection.
+- [x] Raw terminal mode is restored when the wrapper exits.
+- [x] Tests cover Ctrl-C passthrough where practical.
+- [x] Tests cover resize forwarding through a small integration test or a testable forwarding seam.
+- [x] Tests cover terminal mode restoration on normal exit and child failure where practical.
 
 ### Blocked by
 

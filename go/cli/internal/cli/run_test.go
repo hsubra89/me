@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -200,6 +201,46 @@ func TestRunStdioCommandProxiesChildOutputThroughPTY(t *testing.T) {
 	got := out.String()
 	if !strings.Contains(got, "stdout") || !strings.Contains(got, "stderr") {
 		t.Fatalf("expected stdout and stderr through PTY, got %q", got)
+	}
+}
+
+func TestRunStdioCommandDrainsPTYOutputAfterChildExit(t *testing.T) {
+	skipPTYIntegrationIfUnsupported(t)
+
+	continuePath := filepath.Join(t.TempDir(), "continue")
+	out := newBlockingOutputWriter()
+	defer out.Release()
+	done := make(chan error, 1)
+	go func() {
+		done <- runStdioCommand(stdioRunRequest{
+			Command:   []string{"sh", "-c", "printf stdout; while [ ! -f \"$1\" ]; do sleep 0.01; done; printf stderr >&2", "sh", continuePath},
+			IdleAfter: time.Second,
+			Stdin:     strings.NewReader(""),
+			Stdout:    out,
+			Stderr:    &bytes.Buffer{},
+		})
+	}()
+
+	select {
+	case <-out.firstWrite:
+	case err := <-done:
+		t.Fatalf("stdio command exited before first output write: %v", err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for first output write")
+	}
+
+	if err := os.WriteFile(continuePath, []byte("continue"), 0o644); err != nil {
+		t.Fatalf("release child command: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	out.Release()
+
+	if err := <-done; err != nil {
+		t.Fatalf("run stdio command: %v", err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "stdout") || !strings.Contains(got, "stderr") {
+		t.Fatalf("expected PTY output to drain after child exit, got %q", got)
 	}
 }
 
@@ -684,4 +725,44 @@ func waitForNoLeaseFiles(t *testing.T, dir string) {
 		t.Fatalf("glob lease files: %v", err)
 	}
 	t.Fatalf("timed out waiting for lease cleanup, still found %v", matches)
+}
+
+type blockingOutputWriter struct {
+	mu          sync.Mutex
+	buf         bytes.Buffer
+	firstWrite  chan struct{}
+	release     chan struct{}
+	once        sync.Once
+	releaseOnce sync.Once
+}
+
+func newBlockingOutputWriter() *blockingOutputWriter {
+	return &blockingOutputWriter{
+		firstWrite: make(chan struct{}),
+		release:    make(chan struct{}),
+	}
+}
+
+func (w *blockingOutputWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	n, err := w.buf.Write(p)
+	w.mu.Unlock()
+
+	w.once.Do(func() {
+		close(w.firstWrite)
+		<-w.release
+	})
+	return n, err
+}
+
+func (w *blockingOutputWriter) Release() {
+	w.releaseOnce.Do(func() {
+		close(w.release)
+	})
+}
+
+func (w *blockingOutputWriter) String() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.buf.String()
 }
