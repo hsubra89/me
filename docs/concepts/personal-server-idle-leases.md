@@ -19,8 +19,8 @@ Use explicit, renewable leases for user-triggered work.
 
 A lease is not a permanent lock. A lease keeps the Personal Server alive only
 while there is recent evidence of activity. Process existence can be part of that
-evidence, but interactive workflows also need terminal input, terminal output, or
-tool subprocess activity.
+evidence, but interactive workflows also need recent terminal input or terminal
+output.
 
 The Personal Server may hibernate only when there are no active leases, no recent
 human presence, and no protected system maintenance for the configured idle
@@ -50,7 +50,6 @@ Each lease is a small JSON file named by a generated lease ID:
   "lastProcessSeenAt": "2026-05-10T18:22:00Z",
   "lastInputAt": "2026-05-10T18:20:00Z",
   "lastOutputAt": "2026-05-10T18:21:30Z",
-  "lastToolActivityAt": "2026-05-10T18:21:45Z",
   "idleAfter": "30m",
   "expiresAt": "2026-05-10T19:00:00Z"
 }
@@ -72,8 +71,7 @@ me run --interactive -- claude
 
 For non-interactive commands, an active process tree is enough to renew the
 lease. For interactive commands, process existence alone is not enough; the lease
-renews only when there is recent terminal input, terminal output, or child tool
-activity.
+renews only when there is recent terminal input or terminal output.
 
 This handles iterative scripts such as `ralph.sh`: the user wraps the top-level
 script, and the lease follows the process group. Recursive calls to tools like
@@ -92,15 +90,39 @@ alias codex='me run --interactive --idle-after 30m -- codex'
 alias claude='me run --interactive --idle-after 30m -- claude'
 ```
 
-An agent session lease is active when any of these are recent:
+An agent session lease is active when the agent process still exists and either
+of these are recent:
 
 - user input into the terminal
 - agent output on stdout or stderr
-- tool subprocess activity, such as `git`, `npm`, `pnpm`, `cargo`, `go`, `ssh`,
-  or shell commands launched by the agent
 
 An agent session lease is idle when the agent process still exists but has had no
-input, output, or tool activity for the lease idle window.
+input or output for the lease idle window.
+
+Silent long-running work should be wrapped at the command level:
+
+```sh
+me run -- pnpm test
+me run -- ./ralph.sh
+```
+
+The agent lease should not try to infer every subprocess that an agent might
+launch. Tool output usually flows back through the agent terminal, and workflows
+that need stronger protection should use an explicit command lease.
+
+## SSH Sessions
+
+Active SSH sessions are human-presence signals and should prevent hibernation.
+
+An SSH session is active when:
+
+- it has recent terminal input or output
+- it is running an active remote command
+- it is attached to an active `tmux` client or pane
+
+A connected but quiet SSH shell becomes idle after the configured idle window
+unless the user creates an explicit manual inhibitor. This keeps a forgotten
+terminal from keeping the Personal Server alive forever.
 
 ## Tmux Leases
 
@@ -118,14 +140,15 @@ session also becomes idle after the configured idle window.
 This means these cases can hibernate:
 
 - an idle detached `tmux` session
+- an idle SSH shell
 - an idle Codex session
 - an idle Codex session inside `tmux`
 
 And these cases should not hibernate:
 
+- a user actively typing or receiving output in an SSH session
 - a user actively typing in `tmux`
 - Codex or Claude Code actively streaming output
-- Codex or Claude Code actively running tool commands
 - a `tmux` pane running `me run -- ./ralph.sh`
 
 ## Idle State Machine
@@ -136,7 +159,8 @@ On each pass it:
 
 1. Reads lease files from `/run/me/idle/leases`.
 2. Removes stale leases.
-3. Checks active human sessions through login/session state.
+3. Checks active SSH and login sessions through login/session state and recent
+   terminal activity.
 4. Checks attached and recently active `tmux` clients and panes.
 5. Checks protected system maintenance, such as cloud-init, apt, dpkg,
    unattended upgrades, and reboot work.
@@ -150,7 +174,7 @@ The effective rule is:
 
 ```text
 idle =
-  no active SSH/login session with recent input
+  no active SSH/login session with recent terminal activity
   and no active command lease
   and no active agent session lease
   and no active tmux pane or client
@@ -176,10 +200,11 @@ cannot accidentally keep the Personal Server alive forever.
 
 - How should `me run --interactive` observe terminal input/output without
   changing the behavior of full-screen terminal applications?
+- Should any connected SSH session block hibernation, or only sessions with
+  recent activity?
 - Should bootstrap install aliases by default, or should it install command
   shims earlier in `PATH`?
 - What exact idle window should be the default: 20 minutes, 30 minutes, or
   something configurable during `me configure`?
-- Which subprocess names should count as agent tool activity by default?
 - Should detached `tmux` pane output be treated as activity only when the pane's
   foreground process is known to belong to a protected command lease?
