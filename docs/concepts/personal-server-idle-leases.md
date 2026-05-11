@@ -34,12 +34,19 @@ Runtime leases live under:
 /run/me/idle/leases
 ```
 
+`/run` is tmpfs, so lease writes do not create durable disk churn. Local
+development and tests can override the lease directory:
+
+```sh
+ME_LEASE_DIR=/tmp/me-leases
+```
+
 Each lease is a small JSON file named by a generated lease ID:
 
 ```json
 {
   "id": "018f4f6d-2b41-7e8d-a7da-9f96b78a7a8d",
-  "kind": "command",
+  "kind": "stdio",
   "rootPid": 12345,
   "processGroup": 12345,
   "user": "harish",
@@ -47,6 +54,7 @@ Each lease is a small JSON file named by a generated lease ID:
   "command": "codex",
   "interactive": true,
   "startedAt": "2026-05-10T18:00:00Z",
+  "updatedAt": "2026-05-10T18:22:00Z",
   "lastProcessSeenAt": "2026-05-10T18:22:00Z",
   "lastInputAt": "2026-05-10T18:20:00Z",
   "lastOutputAt": "2026-05-10T18:21:30Z",
@@ -58,6 +66,11 @@ Each lease is a small JSON file named by a generated lease ID:
 The idle agent ignores and removes stale lease files when the root process is
 gone, the heartbeat is too old, or the lease has passed `expiresAt`.
 
+Lease writers should update timestamps in memory on every activity event, but
+flush the JSON file only on a bounded cadence. A stdio lease can flush every
+5-15 seconds, plus immediately when state changes or the wrapped command exits.
+This avoids rewriting JSON for every byte or line of terminal output.
+
 ## Command Leases
 
 Commands deliberately started through `me` should run under a command lease:
@@ -65,39 +78,40 @@ Commands deliberately started through `me` should run under a command lease:
 ```sh
 me run -- pnpm test
 me run -- ./ralph.sh
-me run --interactive -- codex
-me run --interactive -- claude
+me run --stdio -- codex
+me run --stdio -- claude
 ```
 
 For non-interactive commands, an active process tree is enough to renew the
-lease. For interactive commands, process existence alone is not enough; the lease
+lease. For stdio commands, process existence alone is not enough; the lease
 renews only when there is recent terminal input or terminal output.
 
 This handles iterative scripts such as `ralph.sh`: the user wraps the top-level
 script, and the lease follows the process group. Recursive calls to tools like
 Codex do not need separate leases to protect the workflow.
 
-## Agent Session Leases
+## Stdio Leases
 
-Codex and Claude Code are interactive agent sessions. They should be protected
-while active, but they should not keep the Personal Server alive merely because
-their prompt is still open.
+A stdio lease protects an interactive command while its terminal is active. This
+fits Codex and Claude Code, but the concept is not specific to coding agents.
+The command should be protected while active, but it should not keep the
+Personal Server alive merely because its prompt is still open.
 
 Bootstrap can install shell aliases or shims:
 
 ```sh
-alias codex='me run --interactive --idle-after 30m -- codex'
-alias claude='me run --interactive --idle-after 30m -- claude'
+alias codex='me run --stdio --idle-after 30m -- codex'
+alias claude='me run --stdio --idle-after 30m -- claude'
 ```
 
-An agent session lease is active when the agent process still exists and either
-of these are recent:
+A stdio lease is active when the command process still exists and either of
+these are recent:
 
 - user input into the terminal
-- agent output on stdout or stderr
+- command output on stdout or stderr
 
-An agent session lease is idle when the agent process still exists but has had no
-input or output for the lease idle window.
+A stdio lease is idle when the command process still exists but has had no input
+or output for the lease idle window.
 
 Silent long-running work should be wrapped at the command level:
 
@@ -106,9 +120,15 @@ me run -- pnpm test
 me run -- ./ralph.sh
 ```
 
-The agent lease should not try to infer every subprocess that an agent might
-launch. Tool output usually flows back through the agent terminal, and workflows
-that need stronger protection should use an explicit command lease.
+The stdio lease should not try to infer every subprocess that a command might
+launch. Tool output usually flows back through the terminal, and workflows that
+need stronger protection should use an explicit command lease.
+
+`me run --stdio` should run the command under a PTY and proxy terminal input and
+output. Plain pipes are not enough for Codex, Claude Code, shells, prompts,
+colors, raw mode, window resize behavior, or full-screen terminal applications.
+The proxy does not need to inspect terminal contents; it only records that bytes
+flowed from user to command or from command to terminal.
 
 ## SSH Sessions
 
@@ -176,7 +196,7 @@ The effective rule is:
 idle =
   no active SSH/login session with recent terminal activity
   and no active command lease
-  and no active agent session lease
+  and no active stdio lease
   and no active tmux pane or client
   and no protected system maintenance
   for the full idle window
@@ -196,10 +216,44 @@ me idle mark-active
 Manual inhibitors are also leases. They should have explicit expirations so they
 cannot accidentally keep the Personal Server alive forever.
 
+## CLI Boundary
+
+This should use the same `me` CLI locally and on the Personal Server. There
+should not be a separate server CLI.
+
+During Personal Server Bootstrap, `me` installs the same binary on the Personal
+Server and wires server-side systemd units, shell aliases, and shims to that
+binary. Some commands may only make sense on the Personal Server, such as an idle
+agent, but they should still live under `me`.
+
+This lets the first implementation be developed locally:
+
+```sh
+ME_LEASE_DIR=/tmp/me-leases me run --stdio -- bash
+ME_LEASE_DIR=/tmp/me-leases me idle status
+```
+
+## First Slice
+
+The first implementation should build only stdio leases:
+
+1. `me run --stdio -- <command...>` starts a command under a PTY.
+2. The PTY proxy updates in-memory `lastInputAt` and `lastOutputAt` timestamps
+   when bytes flow.
+3. The lease file is flushed every 5-15 seconds, on state changes, and on exit.
+4. `ME_LEASE_DIR` can override `/run/me/idle/leases` for local development and
+   tests.
+5. `me idle status` reads leases and reports active, idle, and stale entries.
+
+This first slice should not include hibernation, reaper servers, snapshotting,
+tmux detection, SSH-session detection, or systemd idle-agent scheduling. Those
+features can consume the lease contract after stdio leases are proven.
+
 ## Open Questions
 
-- How should `me run --interactive` observe terminal input/output without
-  changing the behavior of full-screen terminal applications?
+- Which PTY library should `me run --stdio` use?
+- What terminal behavior should be covered by tests before aliases for Codex and
+  Claude Code are installed by default?
 - Should any connected SSH session block hibernation, or only sessions with
   recent activity?
 - Should bootstrap install aliases by default, or should it install command
