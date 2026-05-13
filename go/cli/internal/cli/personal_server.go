@@ -231,8 +231,12 @@ func (gate personalServerProvisioningGate) Configure(ctx context.Context, out io
 		return nil
 	}
 
-	if cfg.PersonalServer.ServerID != 0 {
+	connectionState, _ := cfg.PersonalServer.connectionConfigState()
+	if connectionState == personalServerConnectionConfigReady {
 		return gate.verifyConfiguredPersonalServer(ctx, out, appConfigPath, cfg, token, prompter)
+	}
+	if connectionState != personalServerConnectionConfigAbsent {
+		return gate.clearIncompletePersonalServerConfiguration(ctx, out, appConfigPath, cfg, token, prompter, connectionState)
 	}
 
 	if !prompter.CanPrompt() {
@@ -240,6 +244,34 @@ func (gate personalServerProvisioningGate) Configure(ctx context.Context, out io
 		return nil
 	}
 
+	fmt.Fprintln(out, "Personal Server provisioning prerequisites are ready.")
+	return gate.previewPersonalServerCreation(ctx, out, appConfigPath, token, cfg, prompter)
+}
+
+func (gate personalServerProvisioningGate) clearIncompletePersonalServerConfiguration(ctx context.Context, out io.Writer, appConfigPath string, cfg appConfig, token string, prompter configurePrompter, state personalServerConnectionConfigState) error {
+	switch state {
+	case personalServerConnectionConfigMissingAddress:
+		fmt.Fprintln(out, "Personal Server Configuration is missing a saved Personal Server address.")
+	default:
+		fmt.Fprintln(out, "Personal Server Configuration is incomplete.")
+	}
+	if !prompter.CanPrompt() {
+		return state.validationError()
+	}
+
+	clear, err := prompter.Confirm("Clear incomplete Personal Server Configuration?", true)
+	if err != nil {
+		return err
+	}
+	if !clear {
+		return state.validationError()
+	}
+
+	cfg.PersonalServer = personalServerConfig{}
+	if err := gate.writeConfig(appConfigPath, cfg); err != nil {
+		return err
+	}
+	fmt.Fprintln(out, "Cleared incomplete Personal Server Configuration.")
 	fmt.Fprintln(out, "Personal Server provisioning prerequisites are ready.")
 	return gate.previewPersonalServerCreation(ctx, out, appConfigPath, token, cfg, prompter)
 }
@@ -435,13 +467,13 @@ func (gate personalServerProvisioningGate) createPersonalServer(ctx context.Cont
 		return fmt.Errorf("create Personal Server: %w", err)
 	}
 	if err := client.WaitActions(ctx, actions); err != nil {
-		if saveErr := gate.savePersonalServerConfig(appConfigPath, cfg, server); saveErr != nil {
+		if saveErr := gate.savePersonalServerConfig(appConfigPath, cfg, server, plan.User); saveErr != nil {
 			return saveErr
 		}
 		return fmt.Errorf("wait for Personal Server create actions: %w", err)
 	}
 
-	if err := gate.savePersonalServerConfig(appConfigPath, cfg, server); err != nil {
+	if err := gate.savePersonalServerConfig(appConfigPath, cfg, server, plan.User); err != nil {
 		return err
 	}
 
@@ -457,9 +489,10 @@ func (gate personalServerProvisioningGate) createPersonalServer(ctx context.Cont
 	return writePersonalServerBootstrapReport(out, marker, plan, server)
 }
 
-func (gate personalServerProvisioningGate) savePersonalServerConfig(appConfigPath string, cfg appConfig, server personalServerCloudServer) error {
+func (gate personalServerProvisioningGate) savePersonalServerConfig(appConfigPath string, cfg appConfig, server personalServerCloudServer, user string) error {
 	cfg.PersonalServer = personalServerConfig{
 		ServerID: server.ID,
+		User:     user,
 		IPv4:     server.IPv4,
 		IPv6:     server.IPv6,
 	}
@@ -627,7 +660,7 @@ func writePersonalServerSSHCommand(out io.Writer, label string, identityFile str
 		fmt.Fprintf(out, "- %s: unavailable\n", label)
 		return
 	}
-	fmt.Fprintf(out, "- %s: ssh -i ~/%s %s@%s\n", label, identityFile, user, personalServerSSHCommandHost(host))
+	fmt.Fprintf(out, "- %s: %s\n", label, personalServerSSHCommandText("~/"+identityFile, user, host))
 }
 
 func writePersonalServerMoshCommands(out io.Writer, plan personalServerCreationPlan, server personalServerCloudServer) {
@@ -646,17 +679,7 @@ func writePersonalServerMoshCommand(out io.Writer, label string, identityFile st
 }
 
 func personalServerBootstrapHost(server personalServerCloudServer) string {
-	if strings.TrimSpace(server.IPv4) != "" {
-		return strings.TrimSpace(server.IPv4)
-	}
-	return strings.TrimSpace(server.IPv6)
-}
-
-func personalServerSSHCommandHost(host string) string {
-	if strings.Contains(host, ":") && !strings.HasPrefix(host, "[") {
-		return "[" + host + "]"
-	}
-	return host
+	return personalServerSSHHost(server.IPv4, server.IPv6)
 }
 
 func (gate personalServerProvisioningGate) personalServerSSHRunner() personalServerSSHRunner {
@@ -667,15 +690,13 @@ func (gate personalServerProvisioningGate) personalServerSSHRunner() personalSer
 }
 
 func defaultPersonalServerSSHRunner(ctx context.Context, identityFile string, user string, host string, command string) (string, error) {
-	sshHost := user + "@" + personalServerSSHCommandHost(host)
-	cmd := exec.CommandContext(ctx, "ssh",
+	args := personalServerSSHCommandArgs(identityFile, user, host,
 		"-o", "BatchMode=yes",
 		"-o", "StrictHostKeyChecking=accept-new",
 		"-o", "ConnectTimeout=10",
-		"-i", identityFile,
-		sshHost,
-		command,
 	)
+	args = append(args, command)
+	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", commandOutputError("ssh", output, err)

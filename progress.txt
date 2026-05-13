@@ -1,0 +1,59 @@
+2026-05-13 - Issue 1: Persist the Personal Server User in Personal Server Configuration
+
+- Added the Personal Server User to saved/reloaded Personal Server Configuration JSON.
+- Updated provisioning so created Personal Servers persist the selected Personal Server User with server ID, IPv4, and IPv6 before bootstrap polling can fail or time out.
+- Added a connection-completeness guard that treats Personal Server Configuration without a Personal Server User as incomplete.
+- Verified with `go test ./...` and `go build ./...` from `go/cli`.
+
+2026-05-13 - Issue 2: Connect from the Configured Project Root
+
+- Added `myn connect` with `myn c` as an alias and no positional arguments.
+- Implemented the configured-root Personal Server Connection slice: validates saved roots, SSH identity, Personal Server User/address, local root and identity file existence, and terminal-backed stdin/stdout before SSH.
+- Built the SSH-backed tmux handoff with one TTY allocation, `StrictHostKeyChecking=accept-new`, the configured identity, `bash -lc`, and quiet success behavior.
+- Added fake-backed tests for command routing, root-to-remote-root mapping, local validation, quiet handoff, and exit-status preservation.
+- Verified with `go test ./...` and `go build ./...` from `go/cli`.
+
+2026-05-13 - Issue 3: Map Local Subdirectories to Project-Scoped Remote Targets
+
+- Extended Personal Server Connection planning to map the current working directory lexically under the configured local project root to the matching remote path.
+- Added target Project derivation from the first local path segment, while keeping the configured root itself as the Project when connecting from the root.
+- Replaced the root-only guard with outside-root validation that reports both the configured local root and current working directory before SSH starts.
+- Added tests for subdirectory handoff, root mapping, spaces, cleaned path segments, nested Git roots, lexical symlink-style paths, and outside-root failure.
+- Verified with `go test ./...` and `go build ./...` from `go/cli`.
+
+2026-05-13 - Issue 4: Reuse and Create Project-Scoped tmux Sessions
+
+- Changed the remote Personal Server Connection handoff to attach an existing exact Project tmux session before any new-session directory fallback runs.
+- Added stable tmux-safe session names derived from the remote Project root, including lowercase normalization and separator collapsing.
+- Added new-session fallback selection for exact mapped remote directory, remote Project root, then the Personal Server User home directory, using only remote `-d` directory checks and no directory creation.
+- Added tests for Project-scoped handoff construction, session-name normalization, shell quoting for paths with spaces and punctuation, and plan-level session names.
+- Verified with `go test ./...`, `go build ./...`, and `git diff --check` from `go/cli`/repo root.
+
+2026-05-13 - Issue 5: Complete Host Selection and Connection Documentation
+
+- Added explicit Personal Server Connection tests for IPv4 preference, IPv6 fallback, unbracketed IPv6 SSH host arguments, and running without Hetzner Credentials, Mosh Access, or Idle/Stdio Lease files.
+- Updated the CLI README to document `myn connect`/`myn c`, local-to-remote path mapping, project-scoped tmux session behavior, saved Personal Server User config, host selection, local validation, and initial limits.
+- Marked Issue 5 complete in `issues.md`.
+- Verified with `go test ./...`, `go build ./...`, and `git diff --check` from `go/cli`/repo root.
+
+2026-05-13 - Review note fixup: IPv6-only `myn connect` SSH handoff
+
+- Changed `myn connect` SSH argv to pass the Personal Server User with `-l` and the selected host as a separate unbracketed argument, including IPv6 hosts.
+- Updated focused connect tests and user-facing docs/PRD language away from bracketed IPv6 SSH targets.
+- Removed the resolved review-note queue from `issues.md`.
+- Verified with `go test ./...`, `go build ./...`, and `git diff --check` from `go/cli`/repo root.
+
+2026-05-13 - Issue 6: Align Domain Docs with IPv6 SSH Handoff
+
+- Added the missing issue-tracker slice for the stale domain documentation found after the PRD implementation issues were complete.
+- Updated `CONTEXT.md` so Personal Server Connection IPv6 behavior says SSH receives the Personal Server User via `-l` and an unbracketed host argument.
+- Marked Issue 6 complete in `issues.md`.
+- Verified with `go test ./...`, `go build ./...`, and `git diff --check` from `go/cli`/repo root.
+
+2026-05-13 - Architecture: Deepen Personal Server SSH target construction
+
+- Added a Personal Server SSH target module that owns IPv4-before-IPv6 host selection, executable SSH argv construction, and printed SSH command text.
+- Routed `myn connect`, Personal Server bootstrap SSH polling, live validation SSH, and provisioning SSH command output through the shared module.
+- Switched printed SSH commands to use `-l <user> <host>` so executable and displayed Personal Server SSH forms share the unbracketed host rule.
+- Updated Personal Server SSH target tests and the domain/README wording for provisioning SSH command output.
+- Verified with `go test ./...`, `go build ./...`, and `git diff --check`.

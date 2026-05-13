@@ -15,8 +15,10 @@ usage() {
   cat <<'USAGE'
 Usage: scripts/mount-myn-cli [--bin-dir DIR] [--name NAME] [--force] [--unmount]
 
-Creates a local launcher for the Go `myn` CLI dev build. The launcher runs
-`go run ./cmd/myn` from this checkout, so changes are picked up automatically.
+Creates a local launcher for the Go `myn` CLI dev build. The launcher builds
+and runs this checkout without changing the command's invocation directory, so
+source changes are picked up automatically and cwd-sensitive commands behave
+like the installed CLI.
 
 Options:
   --bin-dir DIR  Directory for the launcher, default: ${MYN_DEV_BIN_DIR:-$HOME/.local/bin}
@@ -102,8 +104,17 @@ tmp_path="$(mktemp "$bin_dir/.$launcher_name.tmp.XXXXXX")"
   printf '%s\n' '#!/usr/bin/env bash'
   printf '%s\n' 'set -euo pipefail'
   printf '%s\n' "$marker"
-  printf 'cd -- %s\n' "$quoted_cli_dir"
-  printf '%s\n' 'exec go run ./cmd/myn "$@"'
+  printf 'cli_dir=%s\n' "$quoted_cli_dir"
+  printf '%s\n' 'tmp_dir="${TMPDIR:-/tmp}/myn-dev-cli"'
+  printf '%s\n' 'mkdir -p -- "$tmp_dir"'
+  printf '%s\n' 'binary="$(mktemp "$tmp_dir/myn.XXXXXX")"'
+  printf '%s\n' 'cleanup() { rm -f -- "$binary"; }'
+  printf '%s\n' 'trap cleanup EXIT'
+  printf '%s\n' '('
+  printf '%s\n' '  cd -- "$cli_dir"'
+  printf '%s\n' '  go build -o "$binary" ./cmd/myn'
+  printf '%s\n' ')'
+  printf '%s\n' '"$binary" "$@"'
 } > "$tmp_path"
 chmod 755 "$tmp_path"
 mv -f -- "$tmp_path" "$launcher_path"

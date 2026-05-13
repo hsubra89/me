@@ -338,16 +338,14 @@ func liveValidationSSHRunner(knownHostsPath string) personalServerSSHRunner {
 		if err := os.MkdirAll(filepath.Dir(knownHostsPath), 0o700); err != nil {
 			return "", fmt.Errorf("create isolated SSH known_hosts directory: %w", err)
 		}
-		sshHost := user + "@" + personalServerSSHCommandHost(host)
-		cmd := exec.CommandContext(ctx, "ssh",
+		args := personalServerSSHCommandArgs(identityFile, user, host,
 			"-o", "BatchMode=yes",
 			"-o", "StrictHostKeyChecking=accept-new",
 			"-o", "UserKnownHostsFile="+knownHostsPath,
 			"-o", "ConnectTimeout=10",
-			"-i", identityFile,
-			sshHost,
-			command,
 		)
+		args = append(args, command)
+		cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			return "", commandOutputError("ssh", output, err)
@@ -504,6 +502,9 @@ func assertLiveValidationConfig(t *testing.T, cfg appConfig) {
 	t.Helper()
 	if cfg.PersonalServer.ServerID == 0 {
 		t.Fatal("live validation did not save Personal Server serverID")
+	}
+	if got := strings.TrimSpace(cfg.PersonalServer.User); got != liveValidationUser {
+		t.Fatalf("live validation Personal Server User mismatch: want %q, got %q", liveValidationUser, got)
 	}
 	if strings.TrimSpace(cfg.PersonalServer.IPv4) == "" {
 		t.Fatal("live validation did not save Personal Server IPv4")

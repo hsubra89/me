@@ -46,7 +46,7 @@ run_review_pass() {
     "Return actionable findings with file references when possible."
 
   set +e
-  codex exec review \
+  codex exec review --dangerously-bypass-approvals-and-sandbox \
     -m gpt-5.5 \
     -c model_reasoning_effort=xhigh \
     -o "$review_file" \

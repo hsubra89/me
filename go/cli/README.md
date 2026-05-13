@@ -32,8 +32,10 @@ myn version
 ```
 
 This creates `~/.local/bin/myn` as a launcher for this checkout. It runs
-`go run ./cmd/myn`, so local source changes are picked up automatically. Use
-`../../scripts/mount-myn-cli --unmount` to remove it.
+a temporary dev binary built from this checkout, so local source changes are
+picked up automatically while cwd-sensitive commands still see the directory
+where `myn` was invoked. Use `../../scripts/mount-myn-cli --unmount` to remove
+it.
 
 ## Configure
 
@@ -135,21 +137,25 @@ missing, interactive `configure` asks before clearing the stale Personal Server
 Configuration; non-interactive `configure` fails without clearing it.
 
 The saved Personal Server Configuration is a top-level config section that
-stores only the created server identity and assigned addresses:
+stores only the created server identity, Personal Server User, and assigned
+addresses:
 
 ```json
 {
   "personalServer": {
     "serverID": 123456,
+    "user": "harish",
     "ipv4": "203.0.113.10",
     "ipv6": "2001:db8::1"
   }
 }
 ```
 
-Location, Server Type, server name, Personal Server User, password, install
-choices, and pricing are transient provisioning inputs. They are not saved as
-desired state.
+The saved section is incomplete for connection unless it has `serverID`, the
+Personal Server User, and at least one saved address.
+
+Location, Server Type, server name, password, install choices, and pricing are
+transient provisioning inputs. They are not saved as desired state.
 
 During creation, `configure` prompts for a Hetzner Location, then lists eligible
 non-deprecated x86_64 Server Types available in that Location. The Location
@@ -180,14 +186,16 @@ password is hashed locally for cloud-init and is not saved in config.
 
 After Hetzner accepts the create request, `configure` waits for create actions,
 root SSH readiness, and the cloud-init Personal Server Bootstrap completion
-marker. A created server ID and assigned IP addresses are saved even if
-bootstrap fails or times out, so the billable server can be inspected.
+marker. A created server ID, Personal Server User, and assigned IP addresses are
+saved even if bootstrap fails or times out, so the billable server can be
+inspected.
 
 When provisioning finishes successfully, `configure` prints SSH commands for
 the Personal Server User and root over IPv4 and IPv6, IPv4 first. Each SSH
-command includes `-i` with the configured SSH identity. It also prints Mosh
-commands for the Personal Server User with the configured SSH identity passed
-through `--ssh`.
+command includes `-i` with the configured SSH identity and `-l` with the login
+user, so IPv6 addresses are passed as unbracketed host arguments. It also
+prints Mosh commands for the Personal Server User with the configured SSH
+identity passed through `--ssh`.
 
 `myn` creates or reuses the `myn-personal-server` firewall and a Hetzner SSH key
 resource for the configured SSH identity. A newly created firewall allows
@@ -199,6 +207,49 @@ server creation, cancellation, or bootstrap failure.
 Personal Server provisioning does not create SSH config aliases, clone or sync
 projects, copy dotfiles, copy GitHub credentials, authenticate `gh`, or install
 a Rust toolchain.
+
+## Connect
+
+```sh
+go run ./cmd/myn connect
+go run ./cmd/myn c
+```
+
+`myn connect` starts a Personal Server Connection using the saved Personal
+Server Configuration. It accepts no path arguments; the current working
+directory is the input. The command requires a configured local project root,
+remote project root, SSH identity, Personal Server User, and at least one saved
+Personal Server address. The local project root and SSH identity file must exist
+locally, and stdin and stdout must be terminal-backed.
+
+The current working directory is mapped lexically under the configured local
+project root to the matching path under the configured remote project root. If
+the command runs from the local project root itself, it targets the remote
+project root. If it runs from a subdirectory, the target Project is the first
+path segment under the configured local project root; Git repository boundaries
+do not affect this. Running outside the configured local project root fails
+before SSH.
+
+The command connects over SSH, preferring the saved IPv4 address and falling
+back to the saved IPv6 address when IPv4 is unavailable. The Personal Server
+User is passed to SSH with `-l`, so IPv6 addresses are passed as unbracketed
+host arguments. The configured SSH identity is passed with `-i`, SSH requests
+one TTY allocation, and host key checking uses
+`StrictHostKeyChecking=accept-new`.
+
+On the Personal Server, `myn connect` runs a Bash login-shell tmux handoff. It
+attaches to an existing project-scoped tmux session when one exists; otherwise
+it creates one. New sessions start in the exact mapped remote directory when
+that directory exists, then fall back to the remote Project root, then the
+Personal Server User home directory. Only existing directories are used, and the
+command does not create missing remote project directories.
+
+Mosh Access remains available through the commands printed after successful
+provisioning, but this first `myn connect` implementation does not use Mosh
+Access, does not require Hetzner Credentials, does not verify the saved server
+through the Hetzner API, and does not create an Idle Lease or Stdio Lease.
+Successful handoff prints no Myn-specific output; local validation failures are
+reported before SSH, and SSH or tmux exit statuses are preserved.
 
 ## Test
 

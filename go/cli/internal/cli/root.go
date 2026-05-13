@@ -14,6 +14,14 @@ type BuildInfo struct {
 }
 
 func NewRootCommand(info BuildInfo) *cobra.Command {
+	return newRootCommand(info, rootDeps{})
+}
+
+type rootDeps struct {
+	connect connectDeps
+}
+
+func newRootCommand(info BuildInfo, deps rootDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:           "myn",
 		Short:         "Provision and operate your personal development environment",
@@ -22,6 +30,7 @@ func NewRootCommand(info BuildInfo) *cobra.Command {
 	}
 
 	cmd.AddCommand(newAuthCommand())
+	cmd.AddCommand(newConnectCommand(deps.connect))
 	cmd.AddCommand(newConfigureCommand())
 	cmd.AddCommand(newIdleCommand())
 	cmd.AddCommand(newRunCommand())

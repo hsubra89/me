@@ -26,6 +26,7 @@ func TestRunConfigureReportsExistingPersonalServer(t *testing.T) {
 		},
 		PersonalServer: personalServerConfig{
 			ServerID: 123456,
+			User:     "harish",
 			IPv4:     "203.0.113.10",
 			IPv6:     "2001:db8::1",
 		},
@@ -102,6 +103,7 @@ func TestRunConfigureClearsStalePersonalServerConfigurationWhenInteractive(t *te
 		},
 		PersonalServer: personalServerConfig{
 			ServerID: 123456,
+			User:     "harish",
 			IPv4:     "203.0.113.10",
 			IPv6:     "2001:db8::1",
 		},
@@ -189,6 +191,7 @@ func TestRunConfigureFailsForStalePersonalServerConfigurationWhenNonInteractive(
 		},
 		PersonalServer: personalServerConfig{
 			ServerID: 123456,
+			User:     "harish",
 			IPv4:     "203.0.113.10",
 			IPv6:     "2001:db8::1",
 		},
@@ -233,7 +236,154 @@ func TestRunConfigureFailsForStalePersonalServerConfigurationWhenNonInteractive(
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-	if got, want := cfg.PersonalServer, (personalServerConfig{ServerID: 123456, IPv4: "203.0.113.10", IPv6: "2001:db8::1"}); got != want {
+	if got, want := cfg.PersonalServer, (personalServerConfig{ServerID: 123456, User: "harish", IPv4: "203.0.113.10", IPv6: "2001:db8::1"}); got != want {
+		t.Fatalf("Personal Server Configuration should be preserved: want %#v, got %#v", want, got)
+	}
+}
+
+func TestRunConfigureClearsIncompletePersonalServerConfigurationWhenInteractive(t *testing.T) {
+	home := t.TempDir()
+	mkdirAll(t, filepath.Join(home, "projects"))
+	identity := seedTestSSHIdentity(t, home, ".ssh/id_ed25519", "existing@host", 0o600)
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
+	if err := saveAppConfig(configPath, appConfig{
+		Auth: authConfig{
+			Hetzner: hetznerConfig{Token: "existing-token"},
+		},
+		PersonalServer: personalServerConfig{
+			ServerID: 123456,
+			IPv4:     "203.0.113.10",
+		},
+	}); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+
+	cloud := &fakePersonalServerCloudClient{
+		locations:   []personalServerLocation{{Name: "ash", Description: "Ashburn, VA, USA"}},
+		serverTypes: []personalServerType{fakePersonalServerType("cx32", "shared", "x86", false, 4, 8, 80, "local", "ash", true, false, "18.50")},
+		pricing:     fakePersonalServerPricing("ipv4", "ash", "0.60"),
+	}
+	prompter := &fakeConfigurePrompter{
+		canPrompt: true,
+		confirms:  []bool{true, false},
+		passwords: []string{"server-secret", "server-secret"},
+	}
+
+	var out bytes.Buffer
+	if err := runConfigure(&out, configureOptions{
+		localRoot:          "projects",
+		localRootSet:       true,
+		remoteRoot:         "projects",
+		remoteRootSet:      true,
+		sshIdentityFile:    identity.PrivatePath,
+		sshIdentityFileSet: true,
+	}, configureDeps{
+		appConfigPath: func() (string, error) {
+			return configPath, nil
+		},
+		userHomeDir: func() (string, error) {
+			return home, nil
+		},
+		sshPublicKey: testSSHPublicKeyFunc(identity),
+		prompter:     prompter,
+		personalServerProvisioner: personalServerProvisioningGate{
+			newCloudClient: func(string) personalServerCloudClient {
+				return cloud
+			},
+		},
+	}); err != nil {
+		t.Fatalf("run configure: %v", err)
+	}
+
+	if got, want := cloud.serverIDs, []int(nil); !reflect.DeepEqual(got, want) {
+		t.Fatalf("incomplete config should not verify server ID before clearing, got %v", got)
+	}
+	if got, want := prompter.confirmCalls, []string{
+		"Clear incomplete Personal Server Configuration?",
+		"Create Personal Server?",
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("confirm calls mismatch: want %v, got %v", want, got)
+	}
+	output := out.String()
+	for _, want := range []string{
+		"Personal Server Configuration is incomplete.",
+		"Cleared incomplete Personal Server Configuration.",
+		"Personal Server provisioning prerequisites are ready.",
+		"Personal Server creation declined. No cloud resources were created.",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected output to contain %q, got %q", want, output)
+		}
+	}
+
+	cfg, err := loadAppConfig(configPath)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if !cfg.PersonalServer.isZero() {
+		t.Fatalf("Personal Server Configuration should be cleared, got %#v", cfg.PersonalServer)
+	}
+}
+
+func TestRunConfigureFailsForIncompletePersonalServerConfigurationWhenNonInteractive(t *testing.T) {
+	home := t.TempDir()
+	mkdirAll(t, filepath.Join(home, "projects"))
+	identity := seedTestSSHIdentity(t, home, ".ssh/id_ed25519", "existing@host", 0o600)
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
+	if err := saveAppConfig(configPath, appConfig{
+		Auth: authConfig{
+			Hetzner: hetznerConfig{Token: "existing-token"},
+		},
+		PersonalServer: personalServerConfig{
+			ServerID: 123456,
+			IPv4:     "203.0.113.10",
+		},
+	}); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+
+	cloud := &fakePersonalServerCloudClient{}
+	var out bytes.Buffer
+	err := runConfigure(&out, configureOptions{
+		localRoot:          "projects",
+		localRootSet:       true,
+		remoteRoot:         "projects",
+		remoteRootSet:      true,
+		sshIdentityFile:    identity.PrivatePath,
+		sshIdentityFileSet: true,
+	}, configureDeps{
+		appConfigPath: func() (string, error) {
+			return configPath, nil
+		},
+		userHomeDir: func() (string, error) {
+			return home, nil
+		},
+		sshPublicKey: testSSHPublicKeyFunc(identity),
+		prompter:     &fakeConfigurePrompter{canPrompt: false},
+		personalServerProvisioner: personalServerProvisioningGate{
+			newCloudClient: func(string) personalServerCloudClient {
+				return cloud
+			},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected incomplete Personal Server Configuration error")
+	}
+	if got, want := err.Error(), "Personal Server Configuration is incomplete; run `myn configure`"; got != want {
+		t.Fatalf("unexpected error: want %q, got %q", want, got)
+	}
+	if !strings.Contains(out.String(), "Personal Server Configuration is incomplete.") {
+		t.Fatalf("expected incomplete config output, got %q", out.String())
+	}
+	if len(cloud.serverIDs) != 0 {
+		t.Fatalf("incomplete config should not verify server ID, got %v", cloud.serverIDs)
+	}
+
+	cfg, err := loadAppConfig(configPath)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if got, want := cfg.PersonalServer, (personalServerConfig{ServerID: 123456, IPv4: "203.0.113.10"}); got != want {
 		t.Fatalf("Personal Server Configuration should be preserved: want %#v, got %#v", want, got)
 	}
 }
@@ -783,7 +933,7 @@ func TestRunConfigureCreatesHetznerResourcesAndSavesPersonalServer(t *testing.T)
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-	if got, want := cfg.PersonalServer, (personalServerConfig{ServerID: 654321, IPv4: "203.0.113.55", IPv6: "2001:db8::55"}); got != want {
+	if got, want := cfg.PersonalServer, (personalServerConfig{ServerID: 654321, User: "harish", IPv4: "203.0.113.55", IPv6: "2001:db8::55"}); got != want {
 		t.Fatalf("saved Personal Server Configuration mismatch: want %#v, got %#v", want, got)
 	}
 	if !strings.Contains(out.String(), "Personal Server created: server 654321.") {
@@ -893,10 +1043,10 @@ func TestRunConfigurePollsBootstrapAndReportsAccess(t *testing.T) {
 		"Partial bootstrap failures:",
 		"- Claude Code install failed",
 		"SSH commands:",
-		"- user IPv4: ssh -i ~/.ssh/id_ed25519 harish@203.0.113.55",
-		"- root IPv4: ssh -i ~/.ssh/id_ed25519 root@203.0.113.55",
-		"- user IPv6: ssh -i ~/.ssh/id_ed25519 harish@[2001:db8::55]",
-		"- root IPv6: ssh -i ~/.ssh/id_ed25519 root@[2001:db8::55]",
+		"- user IPv4: ssh -i ~/.ssh/id_ed25519 -l harish 203.0.113.55",
+		"- root IPv4: ssh -i ~/.ssh/id_ed25519 -l root 203.0.113.55",
+		"- user IPv6: ssh -i ~/.ssh/id_ed25519 -l harish 2001:db8::55",
+		"- root IPv6: ssh -i ~/.ssh/id_ed25519 -l root 2001:db8::55",
 		"Mosh commands:",
 		"- user IPv4: mosh --ssh=\"ssh -i ~/.ssh/id_ed25519\" harish@203.0.113.55",
 		"- user IPv6: mosh --ssh=\"ssh -i ~/.ssh/id_ed25519\" harish@2001:db8::55",
@@ -1054,7 +1204,7 @@ func TestRunConfigureReportsBootstrapFailureButKeepsSavedServer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-	if got, want := cfg.PersonalServer, (personalServerConfig{ServerID: 654321, IPv4: "203.0.113.55", IPv6: "2001:db8::55"}); got != want {
+	if got, want := cfg.PersonalServer, (personalServerConfig{ServerID: 654321, User: "harish", IPv4: "203.0.113.55", IPv6: "2001:db8::55"}); got != want {
 		t.Fatalf("saved Personal Server Configuration mismatch: want %#v, got %#v", want, got)
 	}
 	output := out.String()
@@ -1064,7 +1214,7 @@ func TestRunConfigureReportsBootstrapFailureButKeepsSavedServer(t *testing.T) {
 		"Partial bootstrap failures:",
 		"- Codex install failed",
 		"SSH commands:",
-		"- root IPv4: ssh -i ~/.ssh/id_ed25519 root@203.0.113.55",
+		"- root IPv4: ssh -i ~/.ssh/id_ed25519 -l root 203.0.113.55",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("expected output to contain %q, got %q", want, output)
@@ -1143,14 +1293,14 @@ func TestRunConfigureReportsBootstrapTimeoutButKeepsSavedServer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-	if got, want := cfg.PersonalServer, (personalServerConfig{ServerID: 654321, IPv4: "203.0.113.55", IPv6: "2001:db8::55"}); got != want {
+	if got, want := cfg.PersonalServer, (personalServerConfig{ServerID: 654321, User: "harish", IPv4: "203.0.113.55", IPv6: "2001:db8::55"}); got != want {
 		t.Fatalf("saved Personal Server Configuration mismatch: want %#v, got %#v", want, got)
 	}
 	output := out.String()
 	for _, want := range []string{
 		"Personal Server bootstrap failed: timed out waiting for Personal Server Bootstrap marker",
 		"SSH commands:",
-		"- user IPv4: ssh -i ~/.ssh/id_ed25519 harish@203.0.113.55",
+		"- user IPv4: ssh -i ~/.ssh/id_ed25519 -l harish 203.0.113.55",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("expected output to contain %q, got %q", want, output)
@@ -1289,7 +1439,7 @@ func TestRunConfigureCancellationAfterServerCreationKeepsSavedServer(t *testing.
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-	if got, want := cfg.PersonalServer, (personalServerConfig{ServerID: 654321, IPv4: "203.0.113.55", IPv6: "2001:db8::55"}); got != want {
+	if got, want := cfg.PersonalServer, (personalServerConfig{ServerID: 654321, User: "harish", IPv4: "203.0.113.55", IPv6: "2001:db8::55"}); got != want {
 		t.Fatalf("cancellation after creation should preserve Personal Server Configuration: want %#v, got %#v", want, got)
 	}
 }
@@ -1361,7 +1511,7 @@ func TestRunConfigureRootSSHPollingRespectsCancellationAndKeepsSavedServer(t *te
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-	if got, want := cfg.PersonalServer, (personalServerConfig{ServerID: 654321, IPv4: "203.0.113.55", IPv6: "2001:db8::55"}); got != want {
+	if got, want := cfg.PersonalServer, (personalServerConfig{ServerID: 654321, User: "harish", IPv4: "203.0.113.55", IPv6: "2001:db8::55"}); got != want {
 		t.Fatalf("root SSH cancellation should preserve Personal Server Configuration: want %#v, got %#v", want, got)
 	}
 }
@@ -1436,7 +1586,7 @@ func TestRunConfigureBootstrapMarkerPollingRespectsCancellationAndKeepsSavedServ
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-	if got, want := cfg.PersonalServer, (personalServerConfig{ServerID: 654321, IPv4: "203.0.113.55", IPv6: "2001:db8::55"}); got != want {
+	if got, want := cfg.PersonalServer, (personalServerConfig{ServerID: 654321, User: "harish", IPv4: "203.0.113.55", IPv6: "2001:db8::55"}); got != want {
 		t.Fatalf("marker polling cancellation should preserve Personal Server Configuration: want %#v, got %#v", want, got)
 	}
 }
@@ -1998,6 +2148,7 @@ func TestRunConfigureVerifiesPersonalServerWithHetznerEndpointOverride(t *testin
 		},
 		PersonalServer: personalServerConfig{
 			ServerID: 123456,
+			User:     "harish",
 			IPv4:     "203.0.113.10",
 			IPv6:     "2001:db8::1",
 		},
