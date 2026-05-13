@@ -24,7 +24,7 @@ func TestRunStdioCommandPassesCtrlCThroughPTY(t *testing.T) {
 	}
 	defer func() { _ = userPty.Close() }()
 	defer func() { _ = userTTY.Close() }()
-	leaseDir := os.Getenv("ME_LEASE_DIR")
+	leaseDir := os.Getenv("MYN_LEASE_DIR")
 
 	out := &lockedBuffer{}
 	done := make(chan error, 1)

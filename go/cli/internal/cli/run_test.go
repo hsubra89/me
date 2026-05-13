@@ -309,7 +309,7 @@ func TestRunStdioCommandCreatesStdioLeaseThenRemovesOnExit(t *testing.T) {
 	skipPTYIntegrationIfUnsupported(t)
 
 	leaseDir := t.TempDir()
-	t.Setenv("ME_LEASE_DIR", leaseDir)
+	t.Setenv("MYN_LEASE_DIR", leaseDir)
 	workingDirectory, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("get working directory: %v", err)
@@ -396,7 +396,7 @@ func TestRunStdioCommandRefreshesLeaseHeartbeat(t *testing.T) {
 	skipPTYIntegrationIfUnsupported(t)
 
 	leaseDir := t.TempDir()
-	t.Setenv("ME_LEASE_DIR", leaseDir)
+	t.Setenv("MYN_LEASE_DIR", leaseDir)
 
 	done := make(chan error, 1)
 	go func() {
@@ -429,7 +429,7 @@ func TestRunStdioCommandRecordsOutputActivityAsActiveLease(t *testing.T) {
 	skipPTYIntegrationIfUnsupported(t)
 
 	leaseDir := t.TempDir()
-	t.Setenv("ME_LEASE_DIR", leaseDir)
+	t.Setenv("MYN_LEASE_DIR", leaseDir)
 
 	done := make(chan error, 1)
 	go func() {
@@ -476,7 +476,7 @@ func TestRunStdioCommandRecordsInputActivityAsActiveLease(t *testing.T) {
 	skipPTYIntegrationIfUnsupported(t)
 
 	leaseDir := t.TempDir()
-	t.Setenv("ME_LEASE_DIR", leaseDir)
+	t.Setenv("MYN_LEASE_DIR", leaseDir)
 	readyPath := filepath.Join(t.TempDir(), "ready")
 	stdin, stdinWriter := io.Pipe()
 
@@ -529,7 +529,7 @@ func TestRunStdioCommandReportsQuietLeaseIdleAfterIdleWindow(t *testing.T) {
 	skipPTYIntegrationIfUnsupported(t)
 
 	leaseDir := t.TempDir()
-	t.Setenv("ME_LEASE_DIR", leaseDir)
+	t.Setenv("MYN_LEASE_DIR", leaseDir)
 
 	done := make(chan error, 1)
 	go func() {
@@ -573,7 +573,7 @@ func skipPTYIntegrationIfUnsupported(t *testing.T) {
 	if _, err := exec.LookPath("sh"); err != nil {
 		t.Skip("sh is required for PTY integration tests")
 	}
-	t.Setenv("ME_LEASE_DIR", t.TempDir())
+	t.Setenv("MYN_LEASE_DIR", t.TempDir())
 }
 
 func runTestStdioLeaseExecution(t *testing.T, req stdioLeaseExecutionRequest) error {

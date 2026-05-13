@@ -69,10 +69,10 @@ func (executor stdioLeaseExecutor) validate(req stdioLeaseExecutionRequest) (std
 		return stdioLeaseExecution{}, fmt.Errorf("missing command after --")
 	}
 	if !executor.stdinTerminal(req.Stdin) {
-		return stdioLeaseExecution{}, fmt.Errorf("me run --stdio requires terminal-backed stdin")
+		return stdioLeaseExecution{}, fmt.Errorf("myn run --stdio requires terminal-backed stdin")
 	}
 	if !executor.stdoutTerminal(req.Stdout) {
-		return stdioLeaseExecution{}, fmt.Errorf("me run --stdio requires terminal-backed stdout")
+		return stdioLeaseExecution{}, fmt.Errorf("myn run --stdio requires terminal-backed stdout")
 	}
 
 	return stdioLeaseExecution{

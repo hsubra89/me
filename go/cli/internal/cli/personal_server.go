@@ -227,7 +227,7 @@ func (gate personalServerProvisioningGate) Configure(ctx context.Context, out io
 	}
 	token := strings.TrimSpace(cfg.Auth.Hetzner.Token)
 	if token == "" {
-		fmt.Fprintln(out, "Personal Server creation skipped: Hetzner Credentials are not configured. Run `me auth hetzner` first.")
+		fmt.Fprintln(out, "Personal Server creation skipped: Hetzner Credentials are not configured. Run `myn auth hetzner` first.")
 		return nil
 	}
 
@@ -253,7 +253,7 @@ func (gate personalServerProvisioningGate) verifyConfiguredPersonalServer(ctx co
 	if !found {
 		fmt.Fprintf(out, "Personal Server Configuration references missing server %d.\n", cfg.PersonalServer.ServerID)
 		if !prompter.CanPrompt() {
-			return fmt.Errorf("Personal Server Configuration references missing server %d; rerun `me configure` interactively to clear it", cfg.PersonalServer.ServerID)
+			return fmt.Errorf("Personal Server Configuration references missing server %d; rerun `myn configure` interactively to clear it", cfg.PersonalServer.ServerID)
 		}
 
 		clear, err := prompter.Confirm(fmt.Sprintf("Clear stale Personal Server Configuration for missing server %d?", cfg.PersonalServer.ServerID), true)
@@ -467,10 +467,10 @@ func (gate personalServerProvisioningGate) savePersonalServerConfig(appConfigPat
 }
 
 const (
-	personalServerFirewallName         = "me-personal-server"
+	personalServerFirewallName         = "myn-personal-server"
 	personalServerMoshUDPPortRange     = "60000-61000"
-	personalServerSSHKeyName           = "me-personal-server"
-	personalServerBootstrapMarkerPath  = "/var/lib/me/personal-server-bootstrap.json"
+	personalServerSSHKeyName           = "myn-personal-server"
+	personalServerBootstrapMarkerPath  = "/var/lib/myn/personal-server-bootstrap.json"
 	defaultPersonalServerBootstrapWait = 5 * time.Minute
 	defaultPersonalServerSSHPollWait   = 5 * time.Second
 )
@@ -881,7 +881,7 @@ func personalServerSSHKeyNameForFingerprint(fingerprint string) string {
 
 func personalServerResourceLabels() map[string]string {
 	return map[string]string{
-		"managed_by": "me",
+		"managed_by": "myn",
 		"role":       "personal_server",
 	}
 }

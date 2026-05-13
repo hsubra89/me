@@ -19,7 +19,7 @@ func TestRunConfigureReportsExistingPersonalServer(t *testing.T) {
 	home := t.TempDir()
 	mkdirAll(t, filepath.Join(home, "projects"))
 	identity := seedTestSSHIdentity(t, home, ".ssh/id_ed25519", "existing@host", 0o600)
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 	if err := saveAppConfig(configPath, appConfig{
 		Auth: authConfig{
 			Hetzner: hetznerConfig{Token: "existing-token"},
@@ -95,7 +95,7 @@ func TestRunConfigureClearsStalePersonalServerConfigurationWhenInteractive(t *te
 	home := t.TempDir()
 	mkdirAll(t, filepath.Join(home, "projects"))
 	identity := seedTestSSHIdentity(t, home, ".ssh/id_ed25519", "existing@host", 0o600)
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 	if err := saveAppConfig(configPath, appConfig{
 		Auth: authConfig{
 			Hetzner: hetznerConfig{Token: "existing-token"},
@@ -182,7 +182,7 @@ func TestRunConfigureFailsForStalePersonalServerConfigurationWhenNonInteractive(
 	home := t.TempDir()
 	mkdirAll(t, filepath.Join(home, "projects"))
 	identity := seedTestSSHIdentity(t, home, ".ssh/id_ed25519", "existing@host", 0o600)
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 	if err := saveAppConfig(configPath, appConfig{
 		Auth: authConfig{
 			Hetzner: hetznerConfig{Token: "existing-token"},
@@ -222,7 +222,7 @@ func TestRunConfigureFailsForStalePersonalServerConfigurationWhenNonInteractive(
 	if err == nil {
 		t.Fatal("expected stale Personal Server Configuration error")
 	}
-	if !strings.Contains(err.Error(), "Personal Server Configuration references missing server 123456; rerun `me configure` interactively to clear it") {
+	if !strings.Contains(err.Error(), "Personal Server Configuration references missing server 123456; rerun `myn configure` interactively to clear it") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !strings.Contains(out.String(), "Personal Server Configuration references missing server 123456.") {
@@ -242,7 +242,7 @@ func TestRunConfigureDoesNotAutoAdoptPersonalServerWithoutSavedConfiguration(t *
 	home := t.TempDir()
 	mkdirAll(t, filepath.Join(home, "projects"))
 	identity := seedTestSSHIdentity(t, home, ".ssh/id_ed25519", "existing@host", 0o600)
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 	if err := saveAppConfig(configPath, appConfig{
 		Auth: authConfig{
 			Hetzner: hetznerConfig{Token: "existing-token"},
@@ -308,7 +308,7 @@ func TestRunConfigurePreviewsLocationAndEligibleServerTypes(t *testing.T) {
 	home := t.TempDir()
 	mkdirAll(t, filepath.Join(home, "projects"))
 	identity := seedTestSSHIdentity(t, home, ".ssh/id_ed25519", "existing@host", 0o600)
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 	if err := saveAppConfig(configPath, appConfig{
 		Auth: authConfig{
 			Hetzner: hetznerConfig{Token: "existing-token"},
@@ -422,7 +422,7 @@ func TestRunConfigureCollectsPersonalServerCreationInputsAndDeclinesFinalConfirm
 	home := t.TempDir()
 	mkdirAll(t, filepath.Join(home, "projects"))
 	identity := seedTestSSHIdentity(t, home, ".ssh/id_ed25519", "existing@host", 0o600)
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 	if err := saveAppConfig(configPath, appConfig{
 		Auth: authConfig{
 			Hetzner: hetznerConfig{Token: "existing-token"},
@@ -520,7 +520,7 @@ func TestRunConfigureCollectsPersonalServerCreationInputsAndDeclinesFinalConfirm
 		"Server name: harish-dev",
 		"Personal Server User: harish-subra",
 		"SSH key: ~/.ssh/id_ed25519",
-		"Firewall: me-personal-server (inbound SSH and Mosh UDP 60000-61000 over IPv4 and IPv6)",
+		"Firewall: myn-personal-server (inbound SSH and Mosh UDP 60000-61000 over IPv4 and IPv6)",
 		"Public network: IPv4 and IPv6 enabled",
 		"Remote project root: ~/Remote Projects",
 		"Install plan:",
@@ -563,7 +563,7 @@ func TestRunConfigureFinalConfirmationReportsUnavailablePricing(t *testing.T) {
 	home := t.TempDir()
 	mkdirAll(t, filepath.Join(home, "projects"))
 	identity := seedTestSSHIdentity(t, home, ".ssh/id_ed25519", "existing@host", 0o600)
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 	if err := saveAppConfig(configPath, appConfig{
 		Auth: authConfig{
 			Hetzner: hetznerConfig{Token: "existing-token"},
@@ -639,7 +639,7 @@ func TestRunConfigureCreatesHetznerResourcesAndSavesPersonalServer(t *testing.T)
 	home := t.TempDir()
 	mkdirAll(t, filepath.Join(home, "Remote Projects"))
 	identity := seedTestSSHIdentity(t, home, ".ssh/id_ed25519", "existing@host", 0o600)
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 	if err := saveAppConfig(configPath, appConfig{
 		Auth: authConfig{
 			Hetzner: hetznerConfig{Token: "existing-token"},
@@ -723,7 +723,7 @@ func TestRunConfigureCreatesHetznerResourcesAndSavesPersonalServer(t *testing.T)
 	if got := cloud.serverNames; !reflect.DeepEqual(got, []string{"harish-personal-server"}) {
 		t.Fatalf("server name checks mismatch: want %v, got %v", []string{"harish-personal-server"}, got)
 	}
-	if got := cloud.createdFirewall; got.Name != "me-personal-server" {
+	if got := cloud.createdFirewall; got.Name != "myn-personal-server" {
 		t.Fatalf("created firewall name mismatch: %#v", got)
 	}
 	if got, want := cloud.createdFirewall.Labels, personalServerResourceLabels(); !reflect.DeepEqual(got, want) {
@@ -738,7 +738,7 @@ func TestRunConfigureCreatesHetznerResourcesAndSavesPersonalServer(t *testing.T)
 	if got, want := cloud.createdSSHKey.PublicKey, strings.TrimSpace(identity.PublicLine); got != want {
 		t.Fatalf("created SSH key public key mismatch: want %q, got %q", want, got)
 	}
-	if got, want := cloud.createdSSHKey.Name, "me-personal-server-"+strings.ReplaceAll(identity.HetznerFingerprint, ":", ""); got != want {
+	if got, want := cloud.createdSSHKey.Name, "myn-personal-server-"+strings.ReplaceAll(identity.HetznerFingerprint, ":", ""); got != want {
 		t.Fatalf("created SSH key name mismatch: want %q, got %q", want, got)
 	}
 	if got, want := cloud.sshKeyFingerprints, []string{identity.HetznerFingerprint}; !reflect.DeepEqual(got, want) {
@@ -772,7 +772,7 @@ func TestRunConfigureCreatesHetznerResourcesAndSavesPersonalServer(t *testing.T)
 	if got, want := create.FirewallID, 2001; got != want {
 		t.Fatalf("server create firewall mismatch: want %d, got %d", want, got)
 	}
-	if !strings.Contains(create.UserData, "#cloud-config\n") || !strings.Contains(create.UserData, "ME_REMOTE_PROJECT_ROOT='/home/harish/Remote Projects'") {
+	if !strings.Contains(create.UserData, "#cloud-config\n") || !strings.Contains(create.UserData, "MYN_REMOTE_PROJECT_ROOT='/home/harish/Remote Projects'") {
 		t.Fatalf("server create should include rendered Personal Server Bootstrap cloud-init, got %q", create.UserData)
 	}
 	if got, want := cloud.waitedActionIDs, []int{9001}; !reflect.DeepEqual(got, want) {
@@ -795,7 +795,7 @@ func TestRunConfigurePollsBootstrapAndReportsAccess(t *testing.T) {
 	home := t.TempDir()
 	mkdirAll(t, filepath.Join(home, "Remote Projects"))
 	identity := seedTestSSHIdentity(t, home, ".ssh/id_ed25519", "existing@host", 0o600)
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 	if err := saveAppConfig(configPath, appConfig{
 		Auth: authConfig{
 			Hetzner: hetznerConfig{Token: "existing-token"},
@@ -876,7 +876,7 @@ func TestRunConfigurePollsBootstrapAndReportsAccess(t *testing.T) {
 
 	if got, want := ssh.calls, []personalServerSSHCall{
 		{identityFile: identity.PrivatePath, user: "root", host: "203.0.113.55", command: "true"},
-		{identityFile: identity.PrivatePath, user: "root", host: "203.0.113.55", command: "cat /var/lib/me/personal-server-bootstrap.json"},
+		{identityFile: identity.PrivatePath, user: "root", host: "203.0.113.55", command: "cat /var/lib/myn/personal-server-bootstrap.json"},
 	}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("SSH calls mismatch: want %#v, got %#v", want, got)
 	}
@@ -911,7 +911,7 @@ func TestRunConfigureToleratesTemporarySSHDisconnectsDuringBootstrap(t *testing.
 	home := t.TempDir()
 	mkdirAll(t, filepath.Join(home, "projects"))
 	identity := seedTestSSHIdentity(t, home, ".ssh/id_ed25519", "existing@host", 0o600)
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 	if err := saveAppConfig(configPath, appConfig{
 		Auth: authConfig{
 			Hetzner: hetznerConfig{Token: "existing-token"},
@@ -978,8 +978,8 @@ func TestRunConfigureToleratesTemporarySSHDisconnectsDuringBootstrap(t *testing.
 	if got, want := ssh.calls, []personalServerSSHCall{
 		{identityFile: identity.PrivatePath, user: "root", host: "203.0.113.55", command: "true"},
 		{identityFile: identity.PrivatePath, user: "root", host: "203.0.113.55", command: "true"},
-		{identityFile: identity.PrivatePath, user: "root", host: "203.0.113.55", command: "cat /var/lib/me/personal-server-bootstrap.json"},
-		{identityFile: identity.PrivatePath, user: "root", host: "203.0.113.55", command: "cat /var/lib/me/personal-server-bootstrap.json"},
+		{identityFile: identity.PrivatePath, user: "root", host: "203.0.113.55", command: "cat /var/lib/myn/personal-server-bootstrap.json"},
+		{identityFile: identity.PrivatePath, user: "root", host: "203.0.113.55", command: "cat /var/lib/myn/personal-server-bootstrap.json"},
 	}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("SSH calls mismatch: want %#v, got %#v", want, got)
 	}
@@ -992,7 +992,7 @@ func TestRunConfigureReportsBootstrapFailureButKeepsSavedServer(t *testing.T) {
 	home := t.TempDir()
 	mkdirAll(t, filepath.Join(home, "projects"))
 	identity := seedTestSSHIdentity(t, home, ".ssh/id_ed25519", "existing@host", 0o600)
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 	if err := saveAppConfig(configPath, appConfig{
 		Auth: authConfig{
 			Hetzner: hetznerConfig{Token: "existing-token"},
@@ -1079,7 +1079,7 @@ func TestRunConfigureReportsBootstrapTimeoutButKeepsSavedServer(t *testing.T) {
 	home := t.TempDir()
 	mkdirAll(t, filepath.Join(home, "projects"))
 	identity := seedTestSSHIdentity(t, home, ".ssh/id_ed25519", "existing@host", 0o600)
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 	if err := saveAppConfig(configPath, appConfig{
 		Auth: authConfig{
 			Hetzner: hetznerConfig{Token: "existing-token"},
@@ -1165,7 +1165,7 @@ func TestRunConfigureCancellationBeforeServerCreationDoesNotSavePersonalServer(t
 	home := t.TempDir()
 	mkdirAll(t, filepath.Join(home, "projects"))
 	identity := seedTestSSHIdentity(t, home, ".ssh/id_ed25519", "existing@host", 0o600)
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 	if err := saveAppConfig(configPath, appConfig{
 		Auth: authConfig{
 			Hetzner: hetznerConfig{Token: "existing-token"},
@@ -1226,7 +1226,7 @@ func TestRunConfigureCancellationAfterServerCreationKeepsSavedServer(t *testing.
 	home := t.TempDir()
 	mkdirAll(t, filepath.Join(home, "projects"))
 	identity := seedTestSSHIdentity(t, home, ".ssh/id_ed25519", "existing@host", 0o600)
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 	if err := saveAppConfig(configPath, appConfig{
 		Auth: authConfig{
 			Hetzner: hetznerConfig{Token: "existing-token"},
@@ -1298,7 +1298,7 @@ func TestRunConfigureRootSSHPollingRespectsCancellationAndKeepsSavedServer(t *te
 	home := t.TempDir()
 	mkdirAll(t, filepath.Join(home, "projects"))
 	identity := seedTestSSHIdentity(t, home, ".ssh/id_ed25519", "existing@host", 0o600)
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 	if err := saveAppConfig(configPath, appConfig{
 		Auth: authConfig{
 			Hetzner: hetznerConfig{Token: "existing-token"},
@@ -1370,7 +1370,7 @@ func TestRunConfigureBootstrapMarkerPollingRespectsCancellationAndKeepsSavedServ
 	home := t.TempDir()
 	mkdirAll(t, filepath.Join(home, "projects"))
 	identity := seedTestSSHIdentity(t, home, ".ssh/id_ed25519", "existing@host", 0o600)
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 	if err := saveAppConfig(configPath, appConfig{
 		Auth: authConfig{
 			Hetzner: hetznerConfig{Token: "existing-token"},
@@ -1445,7 +1445,7 @@ func TestRunConfigureFailsWhenPersonalServerNameAlreadyExists(t *testing.T) {
 	home := t.TempDir()
 	mkdirAll(t, filepath.Join(home, "projects"))
 	identity := seedTestSSHIdentity(t, home, ".ssh/id_ed25519", "existing@host", 0o600)
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 	if err := saveAppConfig(configPath, appConfig{
 		Auth: authConfig{
 			Hetzner: hetznerConfig{Token: "existing-token"},
@@ -1521,7 +1521,7 @@ func TestRunConfigureFailsWhenNoUbuntuSystemImageIsAvailable(t *testing.T) {
 	home := t.TempDir()
 	mkdirAll(t, filepath.Join(home, "projects"))
 	identity := seedTestSSHIdentity(t, home, ".ssh/id_ed25519", "existing@host", 0o600)
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 	if err := saveAppConfig(configPath, appConfig{
 		Auth: authConfig{
 			Hetzner: hetznerConfig{Token: "existing-token"},
@@ -1592,7 +1592,7 @@ func TestRunConfigureReusesExistingFirewallAndSSHKey(t *testing.T) {
 	home := t.TempDir()
 	mkdirAll(t, filepath.Join(home, "projects"))
 	identity := seedTestSSHIdentity(t, home, ".ssh/id_ed25519", "existing@host", 0o600)
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 	if err := saveAppConfig(configPath, appConfig{
 		Auth: authConfig{
 			Hetzner: hetznerConfig{Token: "existing-token"},
@@ -1603,7 +1603,7 @@ func TestRunConfigureReusesExistingFirewallAndSSHKey(t *testing.T) {
 
 	existingFirewall := personalServerFirewall{
 		ID:   2222,
-		Name: "me-personal-server",
+		Name: "myn-personal-server",
 		Rules: []personalServerFirewallRule{
 			{Direction: "in", Protocol: "tcp", Port: "2222", SourceIPs: []string{"198.51.100.0/24"}},
 		},
@@ -1623,7 +1623,7 @@ func TestRunConfigureReusesExistingFirewallAndSSHKey(t *testing.T) {
 			{Name: "ubuntu-24.04", Type: "system", Status: "available", OSFlavor: "ubuntu", OSVersion: "24.04", Architecture: "x86"},
 		},
 		firewallsByName: map[string]personalServerFirewall{
-			"me-personal-server": existingFirewall,
+			"myn-personal-server": existingFirewall,
 		},
 		sshKeysByFingerprint: map[string]personalServerSSHKey{
 			identity.HetznerFingerprint: existingSSHKey,
@@ -1677,7 +1677,7 @@ func TestRunConfigureReusesExistingFirewallAndSSHKey(t *testing.T) {
 	if cloud.createdFirewall.ID != 0 {
 		t.Fatalf("expected existing firewall to be reused, created %#v", cloud.createdFirewall)
 	}
-	if got, want := cloud.firewallsByName["me-personal-server"].Rules, existingFirewall.Rules; !reflect.DeepEqual(got, want) {
+	if got, want := cloud.firewallsByName["myn-personal-server"].Rules, existingFirewall.Rules; !reflect.DeepEqual(got, want) {
 		t.Fatalf("existing firewall rules should be left untouched: want %#v, got %#v", want, got)
 	}
 	if cloud.createdSSHKey.ID != 0 {
@@ -1689,7 +1689,7 @@ func TestRunConfigureReusesExistingFirewallAndSSHKey(t *testing.T) {
 	if got, want := cloud.serverCreateRequest.SSHKeyID, existingSSHKey.ID; got != want {
 		t.Fatalf("server create SSH key mismatch: want %d, got %d", want, got)
 	}
-	if !strings.Contains(out.String(), "Firewall: me-personal-server (existing rules reused unchanged; Mosh may require inbound UDP 60000-61000)") {
+	if !strings.Contains(out.String(), "Firewall: myn-personal-server (existing rules reused unchanged; Mosh may require inbound UDP 60000-61000)") {
 		t.Fatalf("expected existing firewall caveat in output, got %q", out.String())
 	}
 }
@@ -1858,7 +1858,7 @@ func TestRunConfigureLocationFallbackDefaultIsFirstSortedCode(t *testing.T) {
 	home := t.TempDir()
 	mkdirAll(t, filepath.Join(home, "projects"))
 	identity := seedTestSSHIdentity(t, home, ".ssh/id_ed25519", "existing@host", 0o600)
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 	if err := saveAppConfig(configPath, appConfig{
 		Auth: authConfig{
 			Hetzner: hetznerConfig{Token: "existing-token"},
@@ -1923,7 +1923,7 @@ func TestRunConfigureReturnsToLocationSelectionWhenNoServerTypesAreEligible(t *t
 	home := t.TempDir()
 	mkdirAll(t, filepath.Join(home, "projects"))
 	identity := seedTestSSHIdentity(t, home, ".ssh/id_ed25519", "existing@host", 0o600)
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 	if err := saveAppConfig(configPath, appConfig{
 		Auth: authConfig{
 			Hetzner: hetznerConfig{Token: "existing-token"},
@@ -1991,7 +1991,7 @@ func TestRunConfigureVerifiesPersonalServerWithHetznerEndpointOverride(t *testin
 	home := t.TempDir()
 	mkdirAll(t, filepath.Join(home, "projects"))
 	identity := seedTestSSHIdentity(t, home, ".ssh/id_ed25519", "existing@host", 0o600)
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 	if err := saveAppConfig(configPath, appConfig{
 		Auth: authConfig{
 			Hetzner: hetznerConfig{Token: "existing-token"},

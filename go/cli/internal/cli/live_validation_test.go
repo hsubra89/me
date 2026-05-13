@@ -19,16 +19,16 @@ import (
 )
 
 const (
-	liveValidationEnabledEnv     = "ME_LIVE_HETZNER"
+	liveValidationEnabledEnv     = "MYN_LIVE_HETZNER"
 	liveValidationAPIKeyEnv      = "HETZNER_API_KEY"
-	liveValidationLocationEnv    = "ME_LIVE_HETZNER_LOCATION"
-	liveValidationServerTypeEnv  = "ME_LIVE_HETZNER_SERVER_TYPE"
+	liveValidationLocationEnv    = "MYN_LIVE_HETZNER_LOCATION"
+	liveValidationServerTypeEnv  = "MYN_LIVE_HETZNER_SERVER_TYPE"
 	liveValidationBootstrapLimit = 5 * time.Minute
 	liveValidationTestTimeout    = 30 * time.Minute
 	liveValidationUser           = "melive"
 	liveValidationRemoteRoot     = "Remote Projects"
-	liveValidationGitName        = "Me Live Validation"
-	liveValidationGitEmail       = "me-live@example.invalid"
+	liveValidationGitName        = "Myn Live Validation"
+	liveValidationGitEmail       = "myn-live@example.invalid"
 )
 
 func TestLoadLiveValidationEnvFileReadsHetznerAPIKey(t *testing.T) {
@@ -112,7 +112,7 @@ func TestLivePersonalServerProvisioning(t *testing.T) {
 		t.Fatalf("compute Hetzner SSH key fingerprint: %v", err)
 	}
 
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 	serverName := liveValidationServerName(t)
 	client := liveValidationHcloudClient(token)
 	t.Cleanup(func() {
@@ -152,7 +152,7 @@ func TestLivePersonalServerProvisioning(t *testing.T) {
 		locationName:   strings.TrimSpace(env[liveValidationLocationEnv]),
 		serverTypeName: strings.TrimSpace(env[liveValidationServerTypeEnv]),
 		serverName:     serverName,
-		password:       "me-live-validation-password",
+		password:       "myn-live-validation-password",
 	}
 	var out bytes.Buffer
 	err = runConfigure(&out, configureOptions{
@@ -296,7 +296,7 @@ func generateLiveValidationSSHKey(t *testing.T, identityPath string) {
 	if err := os.MkdirAll(filepath.Dir(identityPath), 0o700); err != nil {
 		t.Fatalf("create isolated ~/.ssh: %v", err)
 	}
-	cmd := exec.Command("ssh-keygen", "-t", "ed25519", "-N", "", "-C", "me-live-validation", "-f", identityPath)
+	cmd := exec.Command("ssh-keygen", "-t", "ed25519", "-N", "", "-C", "myn-live-validation", "-f", identityPath)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("generate live validation SSH key: %v", commandOutputError("ssh-keygen", output, err))
 	}
@@ -323,7 +323,7 @@ func liveValidationServerName(t *testing.T) string {
 	if _, err := rand.Read(randomBytes[:]); err != nil {
 		t.Fatalf("generate live validation server suffix: %v", err)
 	}
-	return fmt.Sprintf("me-live-%s-%s", time.Now().UTC().Format("20060102-150405"), hex.EncodeToString(randomBytes[:]))
+	return fmt.Sprintf("myn-live-%s-%s", time.Now().UTC().Format("20060102-150405"), hex.EncodeToString(randomBytes[:]))
 }
 
 func liveValidationHcloudClient(token string) *hcloud.Client {
@@ -639,7 +639,7 @@ func assertLiveValidationRemoteSetup(t *testing.T, ctx context.Context, identity
 	}
 
 	liveValidationSSH(t, ctx, identityPath, knownHostsPath, liveValidationUser, host, "docker --version && docker compose version")
-	nvmOutput := strings.Fields(liveValidationSSH(t, ctx, identityPath, knownHostsPath, liveValidationUser, host, "source /etc/profile.d/me-personal-server.sh && nvm version default && node --version"))
+	nvmOutput := strings.Fields(liveValidationSSH(t, ctx, identityPath, knownHostsPath, liveValidationUser, host, "source /etc/profile.d/myn-personal-server.sh && nvm version default && node --version"))
 	if len(nvmOutput) < 2 || nvmOutput[0] == "N/A" || nvmOutput[0] != nvmOutput[1] {
 		t.Fatalf("live nvm default mismatch: %v", nvmOutput)
 	}

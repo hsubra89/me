@@ -20,7 +20,7 @@ func TestVersionCommand(t *testing.T) {
 		t.Fatalf("execute version command: %v", err)
 	}
 
-	const want = "me 1.2.3\ncommit: abc123\ndate: 2026-05-10\n"
+	const want = "myn 1.2.3\ncommit: abc123\ndate: 2026-05-10\n"
 	if got := out.String(); got != want {
 		t.Fatalf("version output mismatch:\nwant %q\ngot  %q", want, got)
 	}

@@ -1,6 +1,6 @@
-# me
+# Myn
 
-A small Cobra-based Go CLI under `go/cli`.
+Myn ("mine") provisions and operates your personal development environment.
 
 ## Development
 
@@ -17,29 +17,29 @@ just tidy
 ## Run
 
 ```sh
-go run ./cmd/me version
+go run ./cmd/myn version
 ```
 
 ## Local Dev Launcher
 
 ```sh
-../../scripts/mount-me-cli
-me version
+../../scripts/mount-myn-cli
+myn version
 ```
 
-This creates `~/.local/bin/me` as a launcher for this checkout. It runs
-`go run ./cmd/me`, so local source changes are picked up automatically. Use
-`../../scripts/mount-me-cli --unmount` to remove it.
+This creates `~/.local/bin/myn` as a launcher for this checkout. It runs
+`go run ./cmd/myn`, so local source changes are picked up automatically. Use
+`../../scripts/mount-myn-cli --unmount` to remove it.
 
 ## Configure
 
 ```sh
-go run ./cmd/me configure
+go run ./cmd/myn configure
 ```
 
 The command configures project roots for this machine and the remote machine,
-plus the Ed25519 SSH identity that future `me`-provisioned servers should
-trust. It stores normalized home-relative paths in the `me` config:
+plus the Ed25519 SSH identity that future `myn`-provisioned servers should
+trust. It stores normalized home-relative paths in the `myn` config:
 
 ```json
 {
@@ -65,7 +65,7 @@ The SSH identity must be an existing Ed25519 private key under the current
 user's home directory. Interactive configuration scans `~/.ssh/*.pub` for
 Ed25519 keypairs, lets you select the current configured identity when it is
 valid, and always offers to generate a new keypair. Generated keys use
-`~/.ssh/id_ed25519` first and fall back to `~/.ssh/id_me_25519` when the
+`~/.ssh/id_ed25519` first and fall back to `~/.ssh/id_myn_25519` when the
 default path is occupied. If an existing private key is missing its `.pub`
 file, `configure` regenerates it with `ssh-keygen -y`.
 
@@ -78,7 +78,7 @@ config saving.
 Non-interactive options:
 
 ```sh
-go run ./cmd/me configure \
+go run ./cmd/myn configure \
   --local-root projects \
   --remote-root projects \
   --ssh-identity-file ~/.ssh/id_ed25519
@@ -91,34 +91,34 @@ Non-interactive `configure` also never creates a Personal Server.
 ## Hetzner Authentication
 
 ```sh
-go run ./cmd/me auth hetzner
+go run ./cmd/myn auth hetzner
 ```
 
 The command validates that a Hetzner Cloud API token is a Read & Write token and
-saves it in the `me` config. It first checks `/locations`, then probes
+saves it in the `myn` config. It first checks `/locations`, then probes
 `DELETE /ssh_keys/0` against a non-existent key so no key is created. By
 default the config path is
-`${XDG_CONFIG_HOME}/me/config.json` or the platform equivalent from Go's
-`os.UserConfigDir`; set `ME_CONFIG` to override it.
+`${XDG_CONFIG_HOME}/myn/config.json` or the platform equivalent from Go's
+`os.UserConfigDir`; set `MYN_CONFIG` to override it.
 
 Non-interactive options:
 
 ```sh
-go run ./cmd/me auth hetzner --token "$HCLOUD_TOKEN"
-go run ./cmd/me auth hetzner --from-hcloud-context warptech
+go run ./cmd/myn auth hetzner --token "$HCLOUD_TOKEN"
+go run ./cmd/myn auth hetzner --from-hcloud-context warptech
 ```
 
-When no token is supplied, the command checks an existing `me` token first, then
+When no token is supplied, the command checks an existing `myn` token first, then
 looks for hcloud contexts in `~/.config/hcloud/cli.toml` or `HCLOUD_CONFIG`.
 Set `HCLOUD_ENDPOINT` to override the validation endpoint.
 
 ## Personal Server Provisioning
 
-Run `me auth hetzner` before provisioning a Personal Server. `me configure`
+Run `myn auth hetzner` before provisioning a Personal Server. `myn configure`
 uses saved Hetzner Credentials; it does not collect or import a Hetzner token
 inside the configure flow.
 
-Interactive `me configure` configures the local project root, remote project
+Interactive `myn configure` configures the local project root, remote project
 root, and SSH identity first. After those values are saved, it can offer to
 create a Hetzner Cloud Personal Server when Hetzner Credentials and a valid
 SSH identity are available. Non-interactive `configure` skips Personal Server
@@ -185,7 +185,7 @@ command includes `-i` with the configured SSH identity. It also prints Mosh
 commands for the Personal Server User with the configured SSH identity passed
 through `--ssh`.
 
-`me` creates or reuses the `me-personal-server` firewall and a Hetzner SSH key
+`myn` creates or reuses the `myn-personal-server` firewall and a Hetzner SSH key
 resource for the configured SSH identity. A newly created firewall allows
 inbound SSH and Mosh UDP `60000-61000` from all IPv4 and IPv6 sources only.
 Existing firewall rules are not reset, so reused firewalls may need the Mosh UDP
@@ -214,18 +214,18 @@ does not print the token.
 ```sh
 just live-hetzner
 # or
-ME_LIVE_HETZNER=1 go test ./internal/cli -run TestLivePersonalServerProvisioning -count=1 -timeout=30m -v
+MYN_LIVE_HETZNER=1 go test ./internal/cli -run TestLivePersonalServerProvisioning -count=1 -timeout=30m -v
 ```
 
-The test uses isolated temporary `me` config, home, known_hosts, and SSH identity
-values. It creates a uniquely named `me-live-*` server through the real
+The test uses isolated temporary `myn` config, home, known_hosts, and SSH identity
+values. It creates a uniquely named `myn-live-*` server through the real
 configure provisioning path, waits for bootstrap, verifies SSH/user/tool setup,
 then deletes the test server on success or failure. It may create and intentionally
-leave behind the reusable `me-personal-server` firewall and matching SSH key,
+leave behind the reusable `myn-personal-server` firewall and matching SSH key,
 which is the product behavior for supporting resources. By default it chooses
 the cheapest eligible offered Server Type in the selected Location to limit
-prorated test cost; set `ME_LIVE_HETZNER_LOCATION` or
-`ME_LIVE_HETZNER_SERVER_TYPE` in `.env.local` to force a specific choice.
+prorated test cost; set `MYN_LIVE_HETZNER_LOCATION` or
+`MYN_LIVE_HETZNER_SERVER_TYPE` in `.env.local` to force a specific choice.
 
 ## Format
 
@@ -241,7 +241,7 @@ go fmt ./...
 just build
 # or
 mkdir -p ./bin
-go build -o ./bin/me ./cmd/me
+go build -o ./bin/myn ./cmd/myn
 ```
 
 ## Release Metadata
@@ -252,5 +252,5 @@ just release 0.1.0
 mkdir -p ./bin
 go build \
   -ldflags "-X main.version=0.1.0 -X main.commit=$(git rev-parse --short HEAD) -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  -o ./bin/me ./cmd/me
+  -o ./bin/myn ./cmd/myn
 ```

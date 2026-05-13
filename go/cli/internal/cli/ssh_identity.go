@@ -16,7 +16,7 @@ import (
 const (
 	sshKeyTypeEd25519             = "ssh-ed25519"
 	primaryGeneratedSSHIdentity   = ".ssh/id_ed25519"
-	fallbackGeneratedSSHIdentity  = ".ssh/id_me_25519"
+	fallbackGeneratedSSHIdentity  = ".ssh/id_myn_25519"
 	generateSSHIdentityChoiceText = "Generate a new Ed25519 keypair"
 )
 
@@ -357,7 +357,7 @@ func generatedSSHIdentityTarget(home string, deps configureDeps) (sshGenerationT
 		}
 	}
 
-	return sshGenerationTarget{}, fmt.Errorf("SSH key generation targets ~/.ssh/id_ed25519 and ~/.ssh/id_me_25519 are already occupied")
+	return sshGenerationTarget{}, fmt.Errorf("SSH key generation targets ~/.ssh/id_ed25519 and ~/.ssh/id_myn_25519 are already occupied")
 }
 
 func pathExists(path string, stat func(string) (os.FileInfo, error)) (bool, error) {
@@ -374,7 +374,7 @@ func pathExists(path string, stat func(string) (os.FileInfo, error)) (bool, erro
 func generatedSSHKeyComment(deps configureDeps) string {
 	username := strings.TrimSpace(deps.currentUsername())
 	if username == "" {
-		username = "me"
+		username = "myn"
 	}
 	username = strings.TrimPrefix(username, `.\`)
 	if index := strings.LastIndexAny(username, `\/`); index >= 0 && index < len(username)-1 {
@@ -401,5 +401,5 @@ func currentOSUsername() string {
 	if value := strings.TrimSpace(os.Getenv("USERNAME")); value != "" {
 		return value
 	}
-	return "me"
+	return "myn"
 }

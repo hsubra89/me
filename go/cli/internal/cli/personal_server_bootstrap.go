@@ -9,7 +9,7 @@ import (
 	"go.yaml.in/yaml/v2"
 )
 
-const personalServerBootstrapScriptPath = "/usr/local/sbin/me-personal-server-bootstrap.sh"
+const personalServerBootstrapScriptPath = "/usr/local/sbin/myn-personal-server-bootstrap.sh"
 
 //go:embed personal_server_tmux.conf
 var personalServerTmuxProfile string
@@ -166,15 +166,15 @@ func renderPersonalServerBootstrapScript(input personalServerBootstrapInput) str
 	fmt.Fprintln(&b, "#!/usr/bin/env bash")
 	fmt.Fprintln(&b, "set -Eeuo pipefail")
 	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "export ME_USER=%s\n", shellQuote(input.User))
-	fmt.Fprintf(&b, "ME_REMOTE_PROJECT_ROOT=%s\n", shellQuote(remoteRootPath))
-	fmt.Fprintln(&b, "ME_MARKER_DIR='/var/lib/me'")
-	fmt.Fprintln(&b, "ME_MARKER=\"$ME_MARKER_DIR/personal-server-bootstrap.json\"")
-	fmt.Fprintln(&b, "ME_REBOOT_REQUIRED='false'")
-	fmt.Fprintf(&b, "ME_HOMEBREW_TOOLS=(%s)\n", shellArray(input.ToolPlan.HomebrewTools))
-	fmt.Fprintf(&b, "ME_SKIPPED_GIT_IDENTITY=(%s)\n", shellArray(skippedGitIdentity))
-	fmt.Fprintf(&b, "export ME_SKIPPED_GIT_IDENTITY_TEXT=%s\n", shellQuote(strings.Join(skippedGitIdentity, ",")))
-	fmt.Fprintln(&b, "ME_PARTIAL_FAILURES=()")
+	fmt.Fprintf(&b, "export MYN_USER=%s\n", shellQuote(input.User))
+	fmt.Fprintf(&b, "MYN_REMOTE_PROJECT_ROOT=%s\n", shellQuote(remoteRootPath))
+	fmt.Fprintln(&b, "MYN_MARKER_DIR='/var/lib/myn'")
+	fmt.Fprintln(&b, "MYN_MARKER=\"$MYN_MARKER_DIR/personal-server-bootstrap.json\"")
+	fmt.Fprintln(&b, "MYN_REBOOT_REQUIRED='false'")
+	fmt.Fprintf(&b, "MYN_HOMEBREW_TOOLS=(%s)\n", shellArray(input.ToolPlan.HomebrewTools))
+	fmt.Fprintf(&b, "MYN_SKIPPED_GIT_IDENTITY=(%s)\n", shellArray(skippedGitIdentity))
+	fmt.Fprintf(&b, "export MYN_SKIPPED_GIT_IDENTITY_TEXT=%s\n", shellQuote(strings.Join(skippedGitIdentity, ",")))
+	fmt.Fprintln(&b, "MYN_PARTIAL_FAILURES=()")
 	fmt.Fprintln(&b)
 	writePersonalServerBootstrapFunctions(&b)
 	fmt.Fprintln(&b)
@@ -187,8 +187,8 @@ func writePersonalServerBootstrapFunctions(b *strings.Builder) {
 	fmt.Fprintln(b, `write_marker() {
   local status="$1"
   local failure="${2:-}"
-  install -d -m 0755 "$ME_MARKER_DIR"
-  python3 - "$ME_MARKER" "$status" "$failure" "$ME_REBOOT_REQUIRED" "${ME_PARTIAL_FAILURES[@]}" <<'PY'
+  install -d -m 0755 "$MYN_MARKER_DIR"
+  python3 - "$MYN_MARKER" "$status" "$failure" "$MYN_REBOOT_REQUIRED" "${MYN_PARTIAL_FAILURES[@]}" <<'PY'
 import datetime
 import json
 import os
@@ -208,12 +208,12 @@ def first_line(command):
         return ""
     return output.splitlines()[0] if output.splitlines() else ""
 
-me_user = os.environ.get("ME_USER", "")
+myn_user = os.environ.get("MYN_USER", "")
 
 def user_command(command):
-    if not me_user:
+    if not myn_user:
         return ["false"]
-    return ["sudo", "-H", "-u", me_user] + command
+    return ["sudo", "-H", "-u", myn_user] + command
 
 def user_shell(command):
     return user_command(["bash", "-lc", command])
@@ -229,11 +229,11 @@ tool_commands = {
     "gh": ["/home/linuxbrew/.linuxbrew/bin/gh", "--version"],
     "rustup": ["/home/linuxbrew/.linuxbrew/bin/rustup", "--version"],
     "go": ["/home/linuxbrew/.linuxbrew/bin/go", "version"],
-    "nvm": user_shell("source /etc/profile.d/me-personal-server.sh >/dev/null 2>&1; nvm --version"),
-    "node": user_shell("source /etc/profile.d/me-personal-server.sh >/dev/null 2>&1; node --version"),
-    "npm": user_shell("source /etc/profile.d/me-personal-server.sh >/dev/null 2>&1; npm --version"),
-    "codex": user_shell("source /etc/profile.d/me-personal-server.sh >/dev/null 2>&1; codex --version"),
-    "claude": user_shell("source /etc/profile.d/me-personal-server.sh >/dev/null 2>&1; claude --version"),
+    "nvm": user_shell("source /etc/profile.d/myn-personal-server.sh >/dev/null 2>&1; nvm --version"),
+    "node": user_shell("source /etc/profile.d/myn-personal-server.sh >/dev/null 2>&1; node --version"),
+    "npm": user_shell("source /etc/profile.d/myn-personal-server.sh >/dev/null 2>&1; npm --version"),
+    "codex": user_shell("source /etc/profile.d/myn-personal-server.sh >/dev/null 2>&1; codex --version"),
+    "claude": user_shell("source /etc/profile.d/myn-personal-server.sh >/dev/null 2>&1; claude --version"),
 }
 
 payload = {
@@ -243,7 +243,7 @@ payload = {
     "rebootRequired": reboot_required,
     "toolVersions": {name: first_line(command) for name, command in tool_commands.items()},
     "partialFailures": partial_failures,
-    "skippedGitIdentity": [item for item in os.environ.get("ME_SKIPPED_GIT_IDENTITY_TEXT", "").split(",") if item],
+    "skippedGitIdentity": [item for item in os.environ.get("MYN_SKIPPED_GIT_IDENTITY_TEXT", "").split(",") if item],
 }
 
 with open(path, "w", encoding="utf-8") as marker:
@@ -261,11 +261,11 @@ mark_failed() {
 }
 
 run_as_user_shell() {
-  sudo -H -u "$ME_USER" bash -lc "$1"
+  sudo -H -u "$MYN_USER" bash -lc "$1"
 }
 
 brew() {
-  sudo -H -u "$ME_USER" /home/linuxbrew/.linuxbrew/bin/brew "$@"
+  sudo -H -u "$MYN_USER" /home/linuxbrew/.linuxbrew/bin/brew "$@"
 }
 
 trap mark_failed ERR`)
@@ -283,16 +283,16 @@ APT::Periodic::Update-Package-Lists "1";
 APT::Periodic::Unattended-Upgrade "1";
 APTCONF
 
-install -d -o "$ME_USER" -g "$ME_USER" "$ME_REMOTE_PROJECT_ROOT"
-install -m 0644 -o "$ME_USER" -g "$ME_USER" /dev/null "/home/$ME_USER/.tmux.conf"
-cat >"/home/$ME_USER/.tmux.conf" <<'TMUXCONF'`)
+install -d -o "$MYN_USER" -g "$MYN_USER" "$MYN_REMOTE_PROJECT_ROOT"
+install -m 0644 -o "$MYN_USER" -g "$MYN_USER" /dev/null "/home/$MYN_USER/.tmux.conf"
+cat >"/home/$MYN_USER/.tmux.conf" <<'TMUXCONF'`)
 	fmt.Fprint(b, personalServerTmuxProfile)
 	if !strings.HasSuffix(personalServerTmuxProfile, "\n") {
 		fmt.Fprintln(b)
 	}
 	fmt.Fprintln(b, `TMUXCONF
-chown "$ME_USER:$ME_USER" "/home/$ME_USER/.tmux.conf"
-chmod 0644 "/home/$ME_USER/.tmux.conf"
+chown "$MYN_USER:$MYN_USER" "/home/$MYN_USER/.tmux.conf"
+chmod 0644 "/home/$MYN_USER/.tmux.conf"
 
 install -m 0755 -d /etc/apt/keyrings
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
@@ -301,14 +301,14 @@ chmod a+r /etc/apt/keyrings/docker.asc
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu ${VERSION_CODENAME} stable" > /etc/apt/sources.list.d/docker.list
 apt-get update
 apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-usermod -aG docker "$ME_USER"
+usermod -aG docker "$MYN_USER"
 
-install -d -o "$ME_USER" -g "$ME_USER" /home/linuxbrew/.linuxbrew
+install -d -o "$MYN_USER" -g "$MYN_USER" /home/linuxbrew/.linuxbrew
 if [ ! -x /home/linuxbrew/.linuxbrew/bin/brew ]; then
-  sudo -H -u "$ME_USER" env NONINTERACTIVE=1 bash -lc "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+  sudo -H -u "$MYN_USER" env NONINTERACTIVE=1 bash -lc "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 fi
-chown -R "$ME_USER:$ME_USER" /home/linuxbrew/.linuxbrew
-cat >/etc/profile.d/me-personal-server.sh <<'PROFILE'
+chown -R "$MYN_USER:$MYN_USER" /home/linuxbrew/.linuxbrew
+cat >/etc/profile.d/myn-personal-server.sh <<'PROFILE'
 export PATH="/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:$PATH"
 eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 export NVM_DIR="$HOME/.nvm"
@@ -318,33 +318,33 @@ fi
 PROFILE
 
 brew update
-brew install "${ME_HOMEBREW_TOOLS[@]}"
+brew install "${MYN_HOMEBREW_TOOLS[@]}"
 
 run_as_user_shell "eval \"\$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)\" && mkdir -p \"\$HOME/.nvm\" && export NVM_DIR=\"\$HOME/.nvm\" && source \"\$(/home/linuxbrew/.linuxbrew/bin/brew --prefix nvm)/nvm.sh\" && nvm install --lts && nvm alias default 'lts/*' && nvm use default"`)
 
 	if strings.TrimSpace(input.GitIdentity.Name) != "" {
-		fmt.Fprintf(b, "sudo -H -u \"$ME_USER\" /home/linuxbrew/.linuxbrew/bin/git config --global user.name %s\n", shellQuote(input.GitIdentity.Name))
+		fmt.Fprintf(b, "sudo -H -u \"$MYN_USER\" /home/linuxbrew/.linuxbrew/bin/git config --global user.name %s\n", shellQuote(input.GitIdentity.Name))
 	}
 	if strings.TrimSpace(input.GitIdentity.Email) != "" {
-		fmt.Fprintf(b, "sudo -H -u \"$ME_USER\" /home/linuxbrew/.linuxbrew/bin/git config --global user.email %s\n", shellQuote(input.GitIdentity.Email))
+		fmt.Fprintf(b, "sudo -H -u \"$MYN_USER\" /home/linuxbrew/.linuxbrew/bin/git config --global user.email %s\n", shellQuote(input.GitIdentity.Email))
 	}
 
 	for _, agent := range input.ToolPlan.CodingAgents {
 		switch agent {
 		case personalServerCodingAgentCodex:
-			fmt.Fprintln(b, `if ! run_as_user_shell 'source /etc/profile.d/me-personal-server.sh && npm install -g @openai/codex'; then
-  ME_PARTIAL_FAILURES+=("Codex install failed")
+			fmt.Fprintln(b, `if ! run_as_user_shell 'source /etc/profile.d/myn-personal-server.sh && npm install -g @openai/codex'; then
+  MYN_PARTIAL_FAILURES+=("Codex install failed")
 fi`)
 		case personalServerCodingAgentClaudeCode:
 			fmt.Fprintln(b, `if ! run_as_user_shell 'curl -fsSL https://claude.ai/install.sh | bash'; then
-  ME_PARTIAL_FAILURES+=("Claude Code install failed")
+  MYN_PARTIAL_FAILURES+=("Claude Code install failed")
 fi`)
 		}
 	}
 
 	fmt.Fprintln(b, `
 if [ -f /var/run/reboot-required ]; then
-  ME_REBOOT_REQUIRED='true'
+  MYN_REBOOT_REQUIRED='true'
 fi
 
 write_marker "success" ""`)

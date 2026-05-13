@@ -84,7 +84,7 @@ func (cfg personalServerConfig) isZero() bool {
 }
 
 func defaultAppConfigPath(env func(string) string) (string, error) {
-	if path := env("ME_CONFIG"); path != "" {
+	if path := env("MYN_CONFIG"); path != "" {
 		return path, nil
 	}
 
@@ -92,7 +92,7 @@ func defaultAppConfigPath(env func(string) string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("find user config directory: %w", err)
 	}
-	return filepath.Join(configDir, "me", "config.json"), nil
+	return filepath.Join(configDir, "myn", "config.json"), nil
 }
 
 func loadAppConfig(path string) (appConfig, error) {

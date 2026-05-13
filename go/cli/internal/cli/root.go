@@ -15,8 +15,8 @@ type BuildInfo struct {
 
 func NewRootCommand(info BuildInfo) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:           "me",
-		Short:         "Personal command-line tools",
+		Use:           "myn",
+		Short:         "Provision and operate your personal development environment",
 		SilenceErrors: true,
 		SilenceUsage:  true,
 	}
@@ -43,5 +43,5 @@ func newVersionCommand(info BuildInfo) *cobra.Command {
 }
 
 func printVersion(w io.Writer, info BuildInfo) {
-	fmt.Fprintf(w, "me %s\ncommit: %s\ndate: %s\n", info.Version, info.Commit, info.Date)
+	fmt.Fprintf(w, "myn %s\ncommit: %s\ndate: %s\n", info.Version, info.Commit, info.Date)
 }

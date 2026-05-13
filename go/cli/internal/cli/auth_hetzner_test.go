@@ -14,12 +14,12 @@ import (
 )
 
 func TestAuthHetznerTokenFlagValidatesAndPersists(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "config", "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "config", "myn", "config.json")
 	server := newHetznerValidationServer(t, map[string]testHetznerTokenPermission{
 		"flag-token": testHetznerReadWrite,
 	})
 
-	t.Setenv("ME_CONFIG", configPath)
+	t.Setenv("MYN_CONFIG", configPath)
 	t.Setenv("HCLOUD_ENDPOINT", server.URL)
 
 	var out bytes.Buffer
@@ -41,12 +41,12 @@ func TestAuthHetznerTokenFlagValidatesAndPersists(t *testing.T) {
 }
 
 func TestAuthHetznerTokenFlagRejectsInvalidToken(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 	server := newHetznerValidationServer(t, map[string]testHetznerTokenPermission{
 		"good-token": testHetznerReadWrite,
 	})
 
-	t.Setenv("ME_CONFIG", configPath)
+	t.Setenv("MYN_CONFIG", configPath)
 	t.Setenv("HCLOUD_ENDPOINT", server.URL)
 
 	var out bytes.Buffer
@@ -67,12 +67,12 @@ func TestAuthHetznerTokenFlagRejectsInvalidToken(t *testing.T) {
 }
 
 func TestAuthHetznerTokenFlagRejectsReadOnlyToken(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 	server := newHetznerValidationServer(t, map[string]testHetznerTokenPermission{
 		"read-only-token": testHetznerReadOnly,
 	})
 
-	t.Setenv("ME_CONFIG", configPath)
+	t.Setenv("MYN_CONFIG", configPath)
 	t.Setenv("HCLOUD_ENDPOINT", server.URL)
 
 	var out bytes.Buffer
@@ -93,7 +93,7 @@ func TestAuthHetznerTokenFlagRejectsReadOnlyToken(t *testing.T) {
 }
 
 func TestAuthHetznerImportsNamedHcloudContext(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 	hcloudConfigPath := filepath.Join(t.TempDir(), "hcloud", "cli.toml")
 	server := newHetznerValidationServer(t, map[string]testHetznerTokenPermission{
 		"staging-token": testHetznerReadWrite,
@@ -111,7 +111,7 @@ active_context = "prod"
   token = "staging-token"
 `)
 
-	t.Setenv("ME_CONFIG", configPath)
+	t.Setenv("MYN_CONFIG", configPath)
 	t.Setenv("HCLOUD_CONFIG", hcloudConfigPath)
 	t.Setenv("HCLOUD_ENDPOINT", server.URL)
 
@@ -131,7 +131,7 @@ active_context = "prod"
 }
 
 func TestAuthHetznerPickerImportsSelectedHcloudContext(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 	hcloudConfigPath := filepath.Join(t.TempDir(), "hcloud", "cli.toml")
 	writeTestFile(t, hcloudConfigPath, `
 active_context = "prod"
@@ -182,7 +182,7 @@ active_context = "prod"
 }
 
 func TestAuthHetznerReportsExistingTokenTimeoutAndPromptsForNewToken(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 	if err := saveHetznerToken(configPath, "old-token"); err != nil {
 		t.Fatalf("seed config: %v", err)
 	}
@@ -223,7 +223,7 @@ func TestAuthHetznerReportsExistingTokenTimeoutAndPromptsForNewToken(t *testing.
 }
 
 func TestAuthHetznerReportsHcloudTokenTimeoutAndPromptsForNewToken(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 	hcloudConfigPath := filepath.Join(t.TempDir(), "hcloud", "cli.toml")
 	writeTestFile(t, hcloudConfigPath, `
 active_context = "warptech"
@@ -272,7 +272,7 @@ active_context = "warptech"
 }
 
 func TestAuthHetznerKeepsValidExistingTokenWithoutTerminal(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 	if err := saveHetznerToken(configPath, "existing-token"); err != nil {
 		t.Fatalf("seed config: %v", err)
 	}

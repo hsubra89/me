@@ -1,6 +1,6 @@
 # Personal Server Idle Leases
 
-This concept defines how `me` decides that a Personal Server is idle enough to
+This concept defines how `myn` decides that a Personal Server is idle enough to
 hibernate without interrupting deliberate user work.
 
 ## Problem
@@ -31,21 +31,21 @@ window.
 Runtime leases live under:
 
 ```text
-/run/me/idle/leases
+/run/myn/idle/leases
 ```
 
 `/run` is tmpfs, so lease writes do not create durable disk churn. Local
 development and tests can override the lease directory:
 
 ```sh
-ME_LEASE_DIR=/tmp/me-leases
+MYN_LEASE_DIR=/tmp/myn-leases
 ```
 
 The CLI should create the lease directory when it is missing and the current
-user has permission to create it. On a Personal Server, `/run/me/idle/leases`
+user has permission to create it. On a Personal Server, `/run/myn/idle/leases`
 should still be created by Personal Server Bootstrap or a future systemd
 tmpfiles configuration with the right owner and permissions, because the
-Personal Server User usually cannot create `/run/me` directly. If directory
+Personal Server User usually cannot create `/run/myn` directly. If directory
 creation fails with permission denied, the CLI should report a setup error that
 the runtime lease directory must be created by Personal Server Bootstrap or
 systemd.
@@ -92,13 +92,13 @@ This avoids rewriting JSON for every byte or line of terminal output.
 
 ## Command Leases
 
-Commands deliberately started through `me` should run under a command lease:
+Commands deliberately started through `myn` should run under a command lease:
 
 ```sh
-me run -- pnpm test
-me run -- ./ralph.sh
-me run --stdio -- codex
-me run --stdio -- claude
+myn run -- pnpm test
+myn run -- ./ralph.sh
+myn run --stdio -- codex
+myn run --stdio -- claude
 ```
 
 For non-interactive commands, an active process tree is enough to renew the
@@ -119,8 +119,8 @@ Personal Server alive merely because its prompt is still open.
 Bootstrap can install shell aliases or shims:
 
 ```sh
-alias codex='me run --stdio --idle-after 30m -- codex'
-alias claude='me run --stdio --idle-after 30m -- claude'
+alias codex='myn run --stdio --idle-after 30m -- codex'
+alias claude='myn run --stdio --idle-after 30m -- claude'
 ```
 
 A stdio lease is active when the command process still exists and either of
@@ -135,15 +135,15 @@ or output for the lease idle window.
 Silent long-running work should be wrapped at the command level:
 
 ```sh
-me run -- pnpm test
-me run -- ./ralph.sh
+myn run -- pnpm test
+myn run -- ./ralph.sh
 ```
 
 The stdio lease should not try to infer every subprocess that a command might
 launch. Tool output usually flows back through the terminal, and workflows that
 need stronger protection should use an explicit command lease.
 
-`me run --stdio` should run the command under a PTY and proxy terminal input and
+`myn run --stdio` should run the command under a PTY and proxy terminal input and
 output. Plain pipes are not enough for Codex, Claude Code, shells, prompts,
 colors, raw mode, window resize behavior, or full-screen terminal applications.
 The proxy does not need to inspect terminal contents; it only records that bytes
@@ -170,7 +170,7 @@ terminal from keeping the Personal Server alive forever.
 A `tmux` session is active when:
 
 - a client is attached and has recent input
-- a pane contains an active `me` command lease
+- a pane contains an active `myn` command lease
 - a pane has recent input or output activity
 
 A detached and quiet `tmux` session is idle. An attached but untouched `tmux`
@@ -188,15 +188,15 @@ And these cases should not hibernate:
 - a user actively typing or receiving output in an SSH session
 - a user actively typing in `tmux`
 - Codex or Claude Code actively streaming output
-- a `tmux` pane running `me run -- ./ralph.sh`
+- a `tmux` pane running `myn run -- ./ralph.sh`
 
 ## Idle State Machine
 
-A root-owned `me-idle-agent` runs periodically, for example once per minute.
+A root-owned `myn-idle-agent` runs periodically, for example once per minute.
 
 On each pass it:
 
-1. Reads lease files from `/run/me/idle/leases`.
+1. Reads lease files from `/run/myn/idle/leases`.
 2. Removes stale leases.
 3. Checks active SSH and login sessions through login/session state and recent
    terminal activity.
@@ -223,13 +223,13 @@ idle =
 
 ## User Controls
 
-`me` should expose explicit controls for exceptional cases:
+`myn` should expose explicit controls for exceptional cases:
 
 ```sh
-me idle status
-me idle inhibit --for 2h --reason "long build"
-me idle disable --for 1d
-me idle mark-active
+myn idle status
+myn idle inhibit --for 2h --reason "long build"
+myn idle disable --for 1d
+myn idle mark-active
 ```
 
 Manual inhibitors are also leases. They should have explicit expirations so they
@@ -237,32 +237,32 @@ cannot accidentally keep the Personal Server alive forever.
 
 ## CLI Boundary
 
-This should use the same `me` CLI locally and on the Personal Server. There
+This should use the same `myn` CLI locally and on the Personal Server. There
 should not be a separate server CLI.
 
-During Personal Server Bootstrap, `me` installs the same binary on the Personal
+During Personal Server Bootstrap, `myn` installs the same binary on the Personal
 Server and wires server-side systemd units, shell aliases, and shims to that
 binary. Some commands may only make sense on the Personal Server, such as an idle
-agent, but they should still live under `me`.
+agent, but they should still live under `myn`.
 
 This lets the first implementation be developed locally:
 
 ```sh
-ME_LEASE_DIR=/tmp/me-leases me run --stdio -- bash
-ME_LEASE_DIR=/tmp/me-leases me idle status
+MYN_LEASE_DIR=/tmp/myn-leases myn run --stdio -- bash
+MYN_LEASE_DIR=/tmp/myn-leases myn idle status
 ```
 
 ## First Slice
 
 The first implementation should build only stdio leases:
 
-1. `me run --stdio -- <command...>` starts a command under a PTY.
+1. `myn run --stdio -- <command...>` starts a command under a PTY.
 2. The PTY proxy updates in-memory `lastInputAt` and `lastOutputAt` timestamps
    when bytes flow.
 3. The lease file is flushed every 5-15 seconds, on state changes, and on exit.
-4. `ME_LEASE_DIR` can override `/run/me/idle/leases` for local development and
+4. `MYN_LEASE_DIR` can override `/run/myn/idle/leases` for local development and
    tests.
-5. `me idle status` reads leases and reports active, idle, and stale entries.
+5. `myn idle status` reads leases and reports active, idle, and stale entries.
 
 This first slice should not include hibernation, reaper servers, snapshotting,
 tmux detection, SSH-session detection, or systemd idle-agent scheduling. Those
@@ -270,7 +270,7 @@ features can consume the lease contract after stdio leases are proven.
 
 ## Open Questions
 
-- Which PTY library should `me run --stdio` use?
+- Which PTY library should `myn run --stdio` use?
 - What terminal behavior should be covered by tests before aliases for Codex and
   Claude Code are installed by default?
 - Should any connected SSH session block hibernation, or only sessions with
@@ -278,6 +278,6 @@ features can consume the lease contract after stdio leases are proven.
 - Should bootstrap install aliases by default, or should it install command
   shims earlier in `PATH`?
 - What exact idle window should be the default: 20 minutes, 30 minutes, or
-  something configurable during `me configure`?
+  something configurable during `myn configure`?
 - Should detached `tmux` pane output be treated as activity only when the pane's
   foreground process is known to belong to a protected command lease?

@@ -14,7 +14,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const defaultIdleLeaseDirectory = "/run/me/idle/leases"
+const defaultIdleLeaseDirectory = "/run/myn/idle/leases"
 
 type idleStatusOptions struct {
 	json bool
@@ -164,7 +164,7 @@ func readIdleStatusReport(deps idleStatusDeps) (idleStatusReport, error) {
 }
 
 func resolveIdleLeaseDirectory(env func(string) string) (string, error) {
-	if dir := strings.TrimSpace(env("ME_LEASE_DIR")); dir != "" {
+	if dir := strings.TrimSpace(env("MYN_LEASE_DIR")); dir != "" {
 		return dir, nil
 	}
 	return defaultIdleLeaseDirectory, nil

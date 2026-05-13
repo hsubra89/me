@@ -9,7 +9,7 @@ import (
 )
 
 func TestSaveAppConfigOmitsEmptyPersonalServerConfiguration(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 	if err := saveAppConfig(configPath, appConfig{
 		PersonalServer: personalServerConfig{},
 	}); err != nil {
@@ -34,7 +34,7 @@ func TestSaveAppConfigOmitsEmptyPersonalServerConfiguration(t *testing.T) {
 }
 
 func TestSaveAppConfigPersistsPersonalServerIdentityOnly(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 	if err := saveAppConfig(configPath, appConfig{
 		PersonalServer: personalServerConfig{
 			ServerID: 123456,

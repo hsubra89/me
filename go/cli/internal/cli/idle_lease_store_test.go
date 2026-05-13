@@ -11,7 +11,7 @@ import (
 func TestIdleLeaseFileStorePublishesOnlyFinalJSONFile(t *testing.T) {
 	leaseDir := t.TempDir()
 	store, err := newIdleLeaseFileStore(func(key string) string {
-		if key == "ME_LEASE_DIR" {
+		if key == "MYN_LEASE_DIR" {
 			return leaseDir
 		}
 		return ""
@@ -27,7 +27,7 @@ func TestIdleLeaseFileStorePublishesOnlyFinalJSONFile(t *testing.T) {
 		RootPID:          os.Getpid(),
 		ProcessGroup:     os.Getpid(),
 		User:             "harish",
-		WorkingDirectory: "/home/harish/projects/me",
+		WorkingDirectory: "/home/harish/projects/myn",
 		Command:          "codex",
 		Interactive:      true,
 		StartedAt:        now,

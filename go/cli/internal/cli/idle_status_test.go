@@ -20,7 +20,7 @@ func TestIdleStatusJSONReportsLeaseStatesFromLeaseDirectory(t *testing.T) {
 		"rootPid":          os.Getpid(),
 		"processGroup":     os.Getpid(),
 		"user":             "harish",
-		"workingDirectory": "/home/harish/projects/me",
+		"workingDirectory": "/home/harish/projects/myn",
 		"command":          "codex",
 		"interactive":      true,
 		"startedAt":        now.Add(-5 * time.Minute).Format(time.RFC3339Nano),
@@ -36,7 +36,7 @@ func TestIdleStatusJSONReportsLeaseStatesFromLeaseDirectory(t *testing.T) {
 		"rootPid":          os.Getpid(),
 		"processGroup":     os.Getpid(),
 		"user":             "harish",
-		"workingDirectory": "/home/harish/projects/me",
+		"workingDirectory": "/home/harish/projects/myn",
 		"command":          "bash",
 		"interactive":      true,
 		"startedAt":        now.Add(-2 * time.Hour).Format(time.RFC3339Nano),
@@ -68,7 +68,7 @@ func TestIdleStatusJSONReportsLeaseStatesFromLeaseDirectory(t *testing.T) {
 		t.Fatalf("write ignored temp file: %v", err)
 	}
 
-	t.Setenv("ME_LEASE_DIR", leaseDir)
+	t.Setenv("MYN_LEASE_DIR", leaseDir)
 	var out bytes.Buffer
 	cmd := NewRootCommand(BuildInfo{})
 	cmd.SetArgs([]string{"idle", "status", "--json"})
@@ -94,8 +94,8 @@ func TestIdleStatusJSONReportsLeaseStatesFromLeaseDirectory(t *testing.T) {
 	if _, ok := report.Leases["ignored"]; ok {
 		t.Fatal("non-json temp file should be ignored")
 	}
-	assertReportedLease(t, report, "active", "active", "codex", "/home/harish/projects/me")
-	assertReportedLease(t, report, "idle", "idle", "bash", "/home/harish/projects/me")
+	assertReportedLease(t, report, "active", "active", "codex", "/home/harish/projects/myn")
+	assertReportedLease(t, report, "idle", "idle", "bash", "/home/harish/projects/myn")
 	assertReportedLease(t, report, "stale", "stale", "claude", "/tmp")
 	malformed := assertReportedLease(t, report, "malformed", "stale", "", "")
 	if !strings.Contains(malformed.Reason, "malformed lease JSON") {
@@ -106,7 +106,7 @@ func TestIdleStatusJSONReportsLeaseStatesFromLeaseDirectory(t *testing.T) {
 func TestIdleStatusHumanReportsEmptyLeaseDirectory(t *testing.T) {
 	leaseDir := t.TempDir()
 
-	t.Setenv("ME_LEASE_DIR", leaseDir)
+	t.Setenv("MYN_LEASE_DIR", leaseDir)
 	var out bytes.Buffer
 	cmd := NewRootCommand(BuildInfo{})
 	cmd.SetArgs([]string{"idle", "status"})
@@ -132,7 +132,7 @@ func TestIdleStatusHumanReportsLeaseDetailsReadOnly(t *testing.T) {
 		"rootPid":          os.Getpid(),
 		"processGroup":     os.Getpid(),
 		"user":             "harish",
-		"workingDirectory": "/home/harish/projects/me",
+		"workingDirectory": "/home/harish/projects/myn",
 		"command":          "codex",
 		"interactive":      true,
 		"startedAt":        now.Add(-5 * time.Minute).Format(time.RFC3339Nano),
@@ -146,7 +146,7 @@ func TestIdleStatusHumanReportsLeaseDetailsReadOnly(t *testing.T) {
 		"kind":             "stdio",
 		"id":               "idle",
 		"rootPid":          os.Getpid(),
-		"workingDirectory": "/home/harish/projects/me",
+		"workingDirectory": "/home/harish/projects/myn",
 		"command":          "bash",
 		"interactive":      true,
 		"updatedAt":        now.Add(-10 * time.Second).Format(time.RFC3339Nano),
@@ -174,7 +174,7 @@ func TestIdleStatusHumanReportsLeaseDetailsReadOnly(t *testing.T) {
 		t.Fatalf("write ignored temp file: %v", err)
 	}
 
-	t.Setenv("ME_LEASE_DIR", leaseDir)
+	t.Setenv("MYN_LEASE_DIR", leaseDir)
 	var out bytes.Buffer
 	cmd := NewRootCommand(BuildInfo{})
 	cmd.SetArgs([]string{"idle", "status"})
@@ -187,8 +187,8 @@ func TestIdleStatusHumanReportsLeaseDetailsReadOnly(t *testing.T) {
 	got := out.String()
 	assertContains(t, got, "Idle leases: 1 active, 1 idle, 2 stale (4 total)")
 	assertContains(t, got, "Lease directory: "+leaseDir)
-	assertContains(t, got, "- active [stdio] active: command=codex cwd=/home/harish/projects/me reason=terminal activity within idle window")
-	assertContains(t, got, "- idle [stdio] idle: command=bash cwd=/home/harish/projects/me reason=terminal activity older than idle window")
+	assertContains(t, got, "- active [stdio] active: command=codex cwd=/home/harish/projects/myn reason=terminal activity within idle window")
+	assertContains(t, got, "- idle [stdio] idle: command=bash cwd=/home/harish/projects/myn reason=terminal activity older than idle window")
 	assertContains(t, got, "- stale [stdio] stale: command=claude cwd=/tmp reason=root process is not running")
 	assertContains(t, got, "- malformed [-] stale: command=- reason=malformed lease JSON")
 	if strings.Contains(got, "ignored") {
@@ -202,7 +202,7 @@ func TestIdleStatusHumanReportsLeaseDetailsReadOnly(t *testing.T) {
 func TestIdleStatusJSONCreatesMissingLeaseDirectory(t *testing.T) {
 	leaseDir := filepath.Join(t.TempDir(), "missing", "leases")
 
-	t.Setenv("ME_LEASE_DIR", leaseDir)
+	t.Setenv("MYN_LEASE_DIR", leaseDir)
 	var out bytes.Buffer
 	cmd := NewRootCommand(BuildInfo{})
 	cmd.SetArgs([]string{"idle", "status", "--json"})
@@ -251,7 +251,7 @@ func TestIdleStatusJSONReportsExpiredAndOldHeartbeatLeasesAsStale(t *testing.T) 
 		"expiresAt":    now.Add(30 * time.Minute).Format(time.RFC3339Nano),
 	})
 
-	t.Setenv("ME_LEASE_DIR", leaseDir)
+	t.Setenv("MYN_LEASE_DIR", leaseDir)
 	var out bytes.Buffer
 	cmd := NewRootCommand(BuildInfo{})
 	cmd.SetArgs([]string{"idle", "status", "--json"})
@@ -274,7 +274,7 @@ func TestIdleStatusJSONReportsExpiredAndOldHeartbeatLeasesAsStale(t *testing.T) 
 
 func TestIdleStatusJSONReportsWrittenStdioLeaseWithDeadRootAsStale(t *testing.T) {
 	leaseDir := t.TempDir()
-	t.Setenv("ME_LEASE_DIR", leaseDir)
+	t.Setenv("MYN_LEASE_DIR", leaseDir)
 	now := time.Now().UTC()
 
 	store, err := newIdleLeaseFileStore(os.Getenv)
@@ -288,7 +288,7 @@ func TestIdleStatusJSONReportsWrittenStdioLeaseWithDeadRootAsStale(t *testing.T)
 		RootPID:          99999999,
 		ProcessGroup:     99999999,
 		User:             "harish",
-		WorkingDirectory: "/home/harish/projects/me",
+		WorkingDirectory: "/home/harish/projects/myn",
 		Command:          "codex",
 		Interactive:      true,
 		StartedAt:        now.Add(-5 * time.Minute),
@@ -314,7 +314,7 @@ func TestIdleStatusJSONReportsWrittenStdioLeaseWithDeadRootAsStale(t *testing.T)
 	}
 
 	report := decodeIdleStatusReport(t, out.Bytes())
-	leftover := assertReportedLease(t, report, "stdio-leftover", "stale", "codex", "/home/harish/projects/me")
+	leftover := assertReportedLease(t, report, "stdio-leftover", "stale", "codex", "/home/harish/projects/myn")
 	if !strings.Contains(leftover.Reason, "root process is not running") {
 		t.Fatalf("leftover reason mismatch: %q", leftover.Reason)
 	}
@@ -326,7 +326,7 @@ func TestIdleStatusJSONReturnsOperationalDirectoryFailures(t *testing.T) {
 		t.Fatalf("write lease path file: %v", err)
 	}
 
-	t.Setenv("ME_LEASE_DIR", leasePath)
+	t.Setenv("MYN_LEASE_DIR", leasePath)
 	var out bytes.Buffer
 	cmd := NewRootCommand(BuildInfo{})
 	cmd.SetArgs([]string{"idle", "status", "--json"})
@@ -347,7 +347,7 @@ func TestIdleStatusHumanReturnsOperationalDirectoryFailures(t *testing.T) {
 		t.Fatalf("write lease path file: %v", err)
 	}
 
-	t.Setenv("ME_LEASE_DIR", leasePath)
+	t.Setenv("MYN_LEASE_DIR", leasePath)
 	var out bytes.Buffer
 	cmd := NewRootCommand(BuildInfo{})
 	cmd.SetArgs([]string{"idle", "status"})

@@ -70,38 +70,38 @@ func TestRenderPersonalServerBootstrapCloudInit(t *testing.T) {
 
 	script := parsed.bootstrapScript()
 	for _, want := range []string{
-		"ME_REMOTE_PROJECT_ROOT='/home/harish/Remote Projects'",
-		"export ME_USER='harish'",
-		"install -d -o \"$ME_USER\" -g \"$ME_USER\" \"$ME_REMOTE_PROJECT_ROOT\"",
-		"install -m 0644 -o \"$ME_USER\" -g \"$ME_USER\" /dev/null \"/home/$ME_USER/.tmux.conf\"",
-		"cat >\"/home/$ME_USER/.tmux.conf\" <<'TMUXCONF'\n" + personalServerTmuxProfile + "TMUXCONF\n",
-		"chown \"$ME_USER:$ME_USER\" \"/home/$ME_USER/.tmux.conf\"",
-		"chmod 0644 \"/home/$ME_USER/.tmux.conf\"",
+		"MYN_REMOTE_PROJECT_ROOT='/home/harish/Remote Projects'",
+		"export MYN_USER='harish'",
+		"install -d -o \"$MYN_USER\" -g \"$MYN_USER\" \"$MYN_REMOTE_PROJECT_ROOT\"",
+		"install -m 0644 -o \"$MYN_USER\" -g \"$MYN_USER\" /dev/null \"/home/$MYN_USER/.tmux.conf\"",
+		"cat >\"/home/$MYN_USER/.tmux.conf\" <<'TMUXCONF'\n" + personalServerTmuxProfile + "TMUXCONF\n",
+		"chown \"$MYN_USER:$MYN_USER\" \"/home/$MYN_USER/.tmux.conf\"",
+		"chmod 0644 \"/home/$MYN_USER/.tmux.conf\"",
 		"apt-get install -y ca-certificates curl gnupg lsb-release unattended-upgrades apt-transport-https build-essential procps file git sudo mosh",
 		"systemctl enable --now unattended-upgrades",
 		"APT::Periodic::Unattended-Upgrade \"1\";",
 		"https://download.docker.com/linux/ubuntu",
 		"docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin",
-		"brew install \"${ME_HOMEBREW_TOOLS[@]}\"",
+		"brew install \"${MYN_HOMEBREW_TOOLS[@]}\"",
 		"nvm install --lts",
 		"nvm alias default 'lts/*'",
 		"npm install -g @openai/codex",
 		"curl -fsSL https://claude.ai/install.sh | bash",
 		"git config --global user.name 'Harish Subramanian'",
-		"ME_SKIPPED_GIT_IDENTITY=( 'user.email' )",
+		"MYN_SKIPPED_GIT_IDENTITY=( 'user.email' )",
 		"trap mark_failed ERR",
 		"write_marker \"failed\"",
-		"ME_PARTIAL_FAILURES+=(\"Codex install failed\")",
-		"ME_PARTIAL_FAILURES+=(\"Claude Code install failed\")",
+		"MYN_PARTIAL_FAILURES+=(\"Codex install failed\")",
+		"MYN_PARTIAL_FAILURES+=(\"Claude Code install failed\")",
 		"\"status\"",
 		"\"timestamp\"",
 		"\"rebootRequired\"",
 		"\"toolVersions\"",
-		"me_user = os.environ.get(\"ME_USER\", \"\")",
-		"\"sudo\", \"-H\", \"-u\", me_user",
+		"myn_user = os.environ.get(\"MYN_USER\", \"\")",
+		"\"sudo\", \"-H\", \"-u\", myn_user",
 		"\"mosh\": [\"mosh-server\", \"--version\"]",
 		"\"brew\": user_command([\"/home/linuxbrew/.linuxbrew/bin/brew\", \"--version\"])",
-		"\"node\": user_shell(\"source /etc/profile.d/me-personal-server.sh >/dev/null 2>&1; node --version\")",
+		"\"node\": user_shell(\"source /etc/profile.d/myn-personal-server.sh >/dev/null 2>&1; node --version\")",
 		"\"partialFailures\"",
 	} {
 		if !strings.Contains(script, want) {
@@ -169,7 +169,7 @@ func (parsed parsedBootstrapCloudInit) user(name string) bootstrapCloudUser {
 
 func (parsed parsedBootstrapCloudInit) bootstrapScript() string {
 	for _, file := range parsed.WriteFiles {
-		if file.Path == "/usr/local/sbin/me-personal-server-bootstrap.sh" {
+		if file.Path == "/usr/local/sbin/myn-personal-server-bootstrap.sh" {
 			return file.Content
 		}
 	}

@@ -547,7 +547,7 @@ fi
 printf -v quoted_thread_id '%q' "$thread_id"
 echo
 echo "Resume from this repo:"
-echo "  ./me/codex-remote resume $quoted_thread_id"
+echo "  ./myn/codex-remote resume $quoted_thread_id"
 echo
 echo "Resume on the remote host:"
 echo "  codex resume $quoted_thread_id"

@@ -17,7 +17,7 @@ func TestConfigureCommandFlagsNormalizeAndPersist(t *testing.T) {
 	mkdirAll(t, localRoot)
 	identity := seedTestSSHIdentity(t, home, ".ssh/id_ed25519", "cli@host", 0o600)
 
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 	if err := saveAppConfig(configPath, appConfig{
 		Auth: authConfig{
 			Hetzner: hetznerConfig{Token: "existing-token"},
@@ -27,7 +27,7 @@ func TestConfigureCommandFlagsNormalizeAndPersist(t *testing.T) {
 	}
 
 	t.Setenv("HOME", home)
-	t.Setenv("ME_CONFIG", configPath)
+	t.Setenv("MYN_CONFIG", configPath)
 
 	var out bytes.Buffer
 	cmd := NewRootCommand(BuildInfo{})
@@ -70,7 +70,7 @@ func TestRunConfigurePromptsWithExistingAndInferredDefaults(t *testing.T) {
 	home := t.TempDir()
 	mkdirAll(t, filepath.Join(home, "work"))
 	identity := seedTestSSHIdentity(t, home, ".ssh/id_ed25519", "work@host", 0o600)
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 	if err := saveAppConfig(configPath, appConfig{
 		Projects: projectsConfig{
 			LocalRoot:  "missing",
@@ -90,10 +90,10 @@ func TestRunConfigurePromptsWithExistingAndInferredDefaults(t *testing.T) {
 			return home, nil
 		},
 		workingDir: func() (string, error) {
-			return filepath.Join(home, "work", "me"), nil
+			return filepath.Join(home, "work", "myn"), nil
 		},
 		gitRoot: func(string) (string, error) {
-			return filepath.Join(home, "work", "me"), nil
+			return filepath.Join(home, "work", "myn"), nil
 		},
 		sshPublicKey: testSSHPublicKeyFunc(identity),
 		sshAgentList: testSSHAgentListFunc(identity),
@@ -134,7 +134,7 @@ func TestRunConfigureDefaultsRemoteRootToSelectedLocalRoot(t *testing.T) {
 	home := t.TempDir()
 	mkdirAll(t, filepath.Join(home, "Code Projects"))
 	identity := seedTestSSHIdentity(t, home, ".ssh/id_ed25519", "code@host", 0o600)
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 	prompter := &fakeConfigurePrompter{
 		canPrompt: true,
 		inputs:    []string{"Code Projects"},
@@ -180,7 +180,7 @@ func TestRunConfigureDefaultsRemoteRootToSelectedLocalRoot(t *testing.T) {
 func TestRunConfigureRequiresTerminalForMissingValues(t *testing.T) {
 	home := t.TempDir()
 	mkdirAll(t, filepath.Join(home, "projects"))
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 
 	var out bytes.Buffer
 	err := runConfigure(&out, configureOptions{
@@ -206,7 +206,7 @@ func TestRunConfigureRequiresTerminalForMissingValues(t *testing.T) {
 
 func TestRunConfigureRejectsInvalidFlagPaths(t *testing.T) {
 	home := t.TempDir()
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 
 	tests := []struct {
 		name string
@@ -263,7 +263,7 @@ func TestRunConfigureNonInteractiveUsesExistingSSHIdentity(t *testing.T) {
 	home := t.TempDir()
 	mkdirAll(t, filepath.Join(home, "projects"))
 	identity := seedTestSSHIdentity(t, home, ".ssh/id_ed25519", "existing@host", 0o600)
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 	if err := saveAppConfig(configPath, appConfig{
 		Auth: authConfig{
 			Hetzner: hetznerConfig{Token: "existing-token"},
@@ -304,7 +304,7 @@ func TestRunConfigureSkipsPersonalServerWhenHetznerCredentialsMissing(t *testing
 	home := t.TempDir()
 	mkdirAll(t, filepath.Join(home, "projects"))
 	identity := seedTestSSHIdentity(t, home, ".ssh/id_ed25519", "existing@host", 0o600)
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 	if err := saveAppConfig(configPath, appConfig{
 		SSH: sshConfig{IdentityFile: identity.Relative},
 	}); err != nil {
@@ -331,7 +331,7 @@ func TestRunConfigureSkipsPersonalServerWhenHetznerCredentialsMissing(t *testing
 		t.Fatalf("run configure: %v", err)
 	}
 
-	if !strings.Contains(out.String(), "Personal Server creation skipped: Hetzner Credentials are not configured. Run `me auth hetzner` first.") {
+	if !strings.Contains(out.String(), "Personal Server creation skipped: Hetzner Credentials are not configured. Run `myn auth hetzner` first.") {
 		t.Fatalf("expected missing credentials skip, got %q", out.String())
 	}
 	assertSavedProjectsConfig(t, configPath, "projects", "projects")
@@ -342,7 +342,7 @@ func TestRunConfigureSavesLocalConfigBeforePersonalServerBranch(t *testing.T) {
 	home := t.TempDir()
 	mkdirAll(t, filepath.Join(home, "projects"))
 	identity := seedTestSSHIdentity(t, home, ".ssh/id_ed25519", "existing@host", 0o600)
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 
 	called := false
 	var out bytes.Buffer
@@ -389,7 +389,7 @@ func TestRunConfigureSavesLocalConfigBeforePersonalServerBranch(t *testing.T) {
 func TestRunConfigureNonInteractiveMissingSSHIdentitySavesRootsAndFails(t *testing.T) {
 	home := t.TempDir()
 	mkdirAll(t, filepath.Join(home, "projects"))
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 
 	provisionerCalled := false
 	var out bytes.Buffer
@@ -432,7 +432,7 @@ func TestRunConfigureInvalidFlaggedSSHIdentityDoesNotProvisionWithStaleIdentity(
 	home := t.TempDir()
 	mkdirAll(t, filepath.Join(home, "projects"))
 	identity := seedTestSSHIdentity(t, home, ".ssh/id_ed25519", "existing@host", 0o600)
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 	if err := saveAppConfig(configPath, appConfig{
 		Auth: authConfig{
 			Hetzner: hetznerConfig{Token: "existing-token"},
@@ -480,7 +480,7 @@ func TestRunConfigureInteractiveGeneratesSSHIdentityWithFallbackAndAgentPrompt(t
 	mkdirAll(t, filepath.Join(home, "projects"))
 	writeTestFile(t, filepath.Join(home, ".ssh", "id_ed25519.pub"), "ssh-rsa ZmFrZS1yc2E= old@host")
 
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 	prompter := &fakeConfigurePrompter{
 		canPrompt:     true,
 		sshSelections: []int{0},
@@ -489,9 +489,9 @@ func TestRunConfigureInteractiveGeneratesSSHIdentityWithFallbackAndAgentPrompt(t
 	}
 	var generatedPath, generatedPassphrase, generatedComment, addedPath string
 	generatedIdentity := testSSHIdentity{
-		Relative:    ".ssh/id_me_25519",
-		PrivatePath: filepath.Join(home, ".ssh", "id_me_25519"),
-		PublicPath:  filepath.Join(home, ".ssh", "id_me_25519.pub"),
+		Relative:    ".ssh/id_myn_25519",
+		PrivatePath: filepath.Join(home, ".ssh", "id_myn_25519"),
+		PublicPath:  filepath.Join(home, ".ssh", "id_myn_25519.pub"),
 		PublicLine:  testSSHPublicKeyLine("generated@host"),
 	}
 	generatedIdentity.PublicKey, _ = parseSSHPublicKey(generatedIdentity.PublicLine)
@@ -538,7 +538,7 @@ func TestRunConfigureInteractiveGeneratesSSHIdentityWithFallbackAndAgentPrompt(t
 		t.Fatalf("run configure: %v", err)
 	}
 
-	if generatedPath != filepath.Join(home, ".ssh", "id_me_25519") {
+	if generatedPath != filepath.Join(home, ".ssh", "id_myn_25519") {
 		t.Fatalf("generated path mismatch: %q", generatedPath)
 	}
 	if generatedPassphrase != "secret" {
@@ -550,7 +550,7 @@ func TestRunConfigureInteractiveGeneratesSSHIdentityWithFallbackAndAgentPrompt(t
 	if addedPath != generatedPath {
 		t.Fatalf("agent add path mismatch: want %q, got %q", generatedPath, addedPath)
 	}
-	assertSavedSSHIdentity(t, configPath, ".ssh/id_me_25519")
+	assertSavedSSHIdentity(t, configPath, ".ssh/id_myn_25519")
 }
 
 func TestRunConfigureInteractiveWarnsWhenRecoveredGeneratedSSHIdentityHasBroadPermissions(t *testing.T) {
@@ -561,7 +561,7 @@ func TestRunConfigureInteractiveWarnsWhenRecoveredGeneratedSSHIdentityHasBroadPe
 		t.Fatalf("remove public key: %v", err)
 	}
 
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 	prompter := &fakeConfigurePrompter{
 		canPrompt:     true,
 		sshSelections: []int{0},
@@ -598,7 +598,7 @@ func TestRunConfigureInteractiveWarnsWhenAgentAddFails(t *testing.T) {
 	home := t.TempDir()
 	mkdirAll(t, filepath.Join(home, "projects"))
 	identity := seedTestSSHIdentity(t, home, ".ssh/id_ed25519", "agent@host", 0o600)
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 	prompter := &fakeConfigurePrompter{
 		canPrompt: true,
 		confirms:  []bool{true},
@@ -641,7 +641,7 @@ func TestRunConfigureRegeneratesMissingPublicKeyForFlaggedIdentity(t *testing.T)
 	identityPath := filepath.Join(home, ".ssh", "id_ed25519")
 	writeTestFile(t, identityPath, "private")
 	publicLine := testSSHPublicKeyLine("recovered@host")
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 
 	var out bytes.Buffer
 	err := runConfigure(&out, configureOptions{
@@ -680,7 +680,7 @@ func TestRunConfigureRegeneratesMissingPublicKeyForFlaggedIdentity(t *testing.T)
 func TestRunConfigureInteractiveDeclinesGenerationSavesRootsAndClearsInvalidSSH(t *testing.T) {
 	home := t.TempDir()
 	mkdirAll(t, filepath.Join(home, "projects"))
-	configPath := filepath.Join(t.TempDir(), "me", "config.json")
+	configPath := filepath.Join(t.TempDir(), "myn", "config.json")
 	if err := saveAppConfig(configPath, appConfig{
 		SSH: sshConfig{IdentityFile: ".ssh/missing"},
 	}); err != nil {
@@ -783,7 +783,7 @@ func TestNormalizeRemoteProjectRoot(t *testing.T) {
 		{name: "escapes home", input: "../projects", wantErr: "must be a subdirectory"},
 		{name: "absolute", input: "/home/harish/projects", wantErr: "must be relative"},
 		{name: "unsupported tilde", input: "~other/projects", wantErr: "must use ~ or ~/"},
-		{name: "backslash", input: `projects\me`, wantErr: "must use slash separators"},
+		{name: "backslash", input: `projects\myn`, wantErr: "must use slash separators"},
 	}
 
 	for _, tt := range tests {

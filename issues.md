@@ -52,14 +52,14 @@ Status: Done
 
 ### What to build
 
-Build the read side of the Idle Lease contract by adding `me idle status --json`. The command should resolve the runtime lease directory, read `.json` lease files, ignore non-JSON files, classify each lease as active, idle, or stale, and emit a stable JSON report with the lease directory, current time, counts, and per-lease details.
+Build the read side of the Idle Lease contract by adding `myn idle status --json`. The command should resolve the runtime lease directory, read `.json` lease files, ignore non-JSON files, classify each lease as active, idle, or stale, and emit a stable JSON report with the lease directory, current time, counts, and per-lease details.
 
-This slice should be verifiable entirely from fixture lease files. It should not require `me run --stdio` to exist yet.
+This slice should be verifiable entirely from fixture lease files. It should not require `myn run --stdio` to exist yet.
 
 ### Acceptance criteria
 
-- [x] `me idle status --json` reads lease files from the default runtime lease directory.
-- [x] `ME_LEASE_DIR` overrides the runtime lease directory.
+- [x] `myn idle status --json` reads lease files from the default runtime lease directory.
+- [x] `MYN_LEASE_DIR` overrides the runtime lease directory.
 - [x] A missing lease directory is created when the current user has permission.
 - [x] Permission failures while creating the runtime lease directory produce a setup error explaining that Personal Server Bootstrap or systemd must create it.
 - [x] Only files ending in `.json` are considered leases.
@@ -74,7 +74,7 @@ This slice should be verifiable entirely from fixture lease files. It should not
 - [x] A lease whose heartbeat is too old is reported as `stale`.
 - [x] Malformed lease JSON is reported as `stale` with a useful reason.
 - [x] The JSON response includes `leaseDirectory`, `now`, state counts, and per-lease details.
-- [x] `me idle status --json` exits zero when the status report is produced successfully, even when idle or stale leases exist.
+- [x] `myn idle status --json` exits zero when the status report is produced successfully, even when idle or stale leases exist.
 - [x] Operational failures exit non-zero.
 - [x] Tests cover active, idle, stale, malformed, ignored temp files, directory override, missing-directory creation, and exit behavior.
 
@@ -92,13 +92,13 @@ Status: Done
 
 ### What to build
 
-Add the default human-readable `me idle status` output using the same evaluated lease state as `--json`. The command should summarize active, idle, and stale counts and list enough per-lease detail for a user to understand which interactive sessions are keeping the Personal Server awake or why a lease is stale.
+Add the default human-readable `myn idle status` output using the same evaluated lease state as `--json`. The command should summarize active, idle, and stale counts and list enough per-lease detail for a user to understand which interactive sessions are keeping the Personal Server awake or why a lease is stale.
 
 This slice must remain read-only: status may inspect and report lease files, but it must not prune stale leases.
 
 ### Acceptance criteria
 
-- [x] `me idle status` renders a concise human-readable summary.
+- [x] `myn idle status` renders a concise human-readable summary.
 - [x] The summary includes counts for active, idle, and stale leases.
 - [x] Per-lease output includes the lease ID, kind, state, command, working directory when present, and a state reason.
 - [x] Stale leases include the reason they were classified as stale.
@@ -121,16 +121,16 @@ Status: Done
 
 ### What to build
 
-Add the first executable path for `me run --stdio`. The command should validate flags, require a terminal-backed stdin and stdout, start the wrapped command under a PTY on supported Unix-like platforms, proxy input and output, and pass through the wrapped command's exit status.
+Add the first executable path for `myn run --stdio`. The command should validate flags, require a terminal-backed stdin and stdout, start the wrapped command under a PTY on supported Unix-like platforms, proxy input and output, and pass through the wrapped command's exit status.
 
 This slice establishes transparent PTY wrapper behavior without writing Stdio Lease files yet.
 
 ### Acceptance criteria
 
-- [x] `me run --stdio -- <command...>` starts the command under a PTY on supported Unix-like platforms.
+- [x] `myn run --stdio -- <command...>` starts the command under a PTY on supported Unix-like platforms.
 - [x] The PTY implementation uses `github.com/creack/pty`.
 - [x] Unsupported platforms fail clearly rather than falling back to plain pipes.
-- [x] `me run -- <command...>` without `--stdio` fails clearly because non-stdio command leases are not implemented yet.
+- [x] `myn run -- <command...>` without `--stdio` fails clearly because non-stdio command leases are not implemented yet.
 - [x] `--idle-after` defaults to `30m`.
 - [x] Valid Go-style duration values are accepted for `--idle-after`.
 - [x] Zero, negative, and malformed idle windows are rejected before the child command starts.
@@ -156,13 +156,13 @@ Status: Done
 
 ### What to build
 
-Connect the PTY runner to the Idle Lease store. While a stdio command is running, `me run --stdio` should create a Stdio Lease JSON file, keep its heartbeat fresh on a bounded cadence, write updates atomically, and remove the lease file on normal wrapper exit.
+Connect the PTY runner to the Idle Lease store. While a stdio command is running, `myn run --stdio` should create a Stdio Lease JSON file, keep its heartbeat fresh on a bounded cadence, write updates atomically, and remove the lease file on normal wrapper exit.
 
 The command does not need to renew from terminal input or output in this slice beyond initial metadata and heartbeat behavior. Activity-specific renewal is handled by a later slice.
 
 ### Acceptance criteria
 
-- [x] Starting `me run --stdio` creates one Stdio Lease file in the resolved lease directory.
+- [x] Starting `myn run --stdio` creates one Stdio Lease file in the resolved lease directory.
 - [x] Lease file names use generated lease IDs with a `.json` extension.
 - [x] Lease files are written with `0644` permissions.
 - [x] Lease files contain no full command arguments.
@@ -173,7 +173,7 @@ The command does not need to renew from terminal input or output in this slice b
 - [x] Heartbeat flushes update `updatedAt` on a bounded cadence.
 - [x] A meaningful state change flushes promptly.
 - [x] Normal wrapper exit removes the lease file.
-- [x] If the wrapper or child dies abnormally and leaves a lease behind, `me idle status --json` reports it as stale.
+- [x] If the wrapper or child dies abnormally and leaves a lease behind, `myn idle status --json` reports it as stale.
 - [x] Tests verify lease creation, metadata, atomic write behavior, heartbeat update, final cleanup, and stale leftover reporting.
 
 ### Blocked by
@@ -192,7 +192,7 @@ Status: Done
 
 Make Stdio Lease activity follow terminal traffic. The PTY proxy should update in-memory `lastInputAt` when bytes flow from the user toward the command and `lastOutputAt` when bytes flow from the command toward the terminal. Lease flushes should persist those timestamps on a bounded cadence and promptly on meaningful state changes.
 
-After this slice, `me idle status` and `me idle status --json` should show a running stdio command as active when either input or output is recent, and idle when the process still exists but both have been quiet longer than `idleAfter`.
+After this slice, `myn idle status` and `myn idle status --json` should show a running stdio command as active when either input or output is recent, and idle when the process still exists but both have been quiet longer than `idleAfter`.
 
 ### Acceptance criteria
 
@@ -205,8 +205,8 @@ After this slice, `me idle status` and `me idle status --json` should show a run
 - [x] A quiet but heartbeating stdio wrapper is reported as `idle`, not `stale`.
 - [x] Activity timestamp updates are flushed on a bounded cadence instead of on every byte.
 - [x] Meaningful activity state changes flush promptly.
-- [x] `me idle status --json` reports active and idle Stdio Leases according to terminal activity.
-- [x] `me idle status` reports the same states and reasons in human-readable form.
+- [x] `myn idle status --json` reports active and idle Stdio Leases according to terminal activity.
+- [x] `myn idle status` reports the same states and reasons in human-readable form.
 - [x] Tests verify input-only renewal, output-only renewal, quiet-idle classification, heartbeat-versus-activity distinction, and JSON/human status consistency.
 
 ### Blocked by
@@ -223,7 +223,7 @@ Status: Done
 
 ### What to build
 
-Finish the terminal-fidelity behavior promised by PTY-backed Stdio Leases. `me run --stdio` should behave like a transparent interactive wrapper for common terminal controls: Ctrl-C should reach the child process, the wrapper should not treat Ctrl-C as its own cancellation request while the child is running, and terminal resize events should be forwarded to the child PTY.
+Finish the terminal-fidelity behavior promised by PTY-backed Stdio Leases. `myn run --stdio` should behave like a transparent interactive wrapper for common terminal controls: Ctrl-C should reach the child process, the wrapper should not treat Ctrl-C as its own cancellation request while the child is running, and terminal resize events should be forwarded to the child PTY.
 
 This slice is about preserving interactive behavior for shells, Codex, Claude Code, editors, prompts, and full-screen TUIs.
 

@@ -4,7 +4,7 @@ default:
 
 # Run the CLI. Example: just run version
 run *args:
-    go run ./cmd/me {{args}}
+    go run ./cmd/myn {{args}}
 
 # Format Go sources.
 fmt:
@@ -16,12 +16,12 @@ test:
 
 # Run guarded live Hetzner Personal Server validation.
 live-hetzner:
-    ME_LIVE_HETZNER=1 go test ./internal/cli -run TestLivePersonalServerProvisioning -count=1 -timeout=30m -v
+    MYN_LIVE_HETZNER=1 go test ./internal/cli -run TestLivePersonalServerProvisioning -count=1 -timeout=30m -v
 
-# Build the CLI binary at ./bin/me.
+# Build the CLI binary at ./bin/myn.
 build:
     mkdir -p ./bin
-    go build -o ./bin/me ./cmd/me
+    go build -o ./bin/myn ./cmd/myn
 
 # Sync go.mod and go.sum with imports.
 tidy:
@@ -30,4 +30,4 @@ tidy:
 # Build the CLI binary with release metadata. Example: just release 0.1.0
 release version:
     mkdir -p ./bin
-    go build -ldflags "-X main.version={{version}} -X main.commit=$(git rev-parse --short HEAD) -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" -o ./bin/me ./cmd/me
+    go build -ldflags "-X main.version={{version}} -X main.commit=$(git rev-parse --short HEAD) -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" -o ./bin/myn ./cmd/myn
