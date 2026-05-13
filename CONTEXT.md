@@ -25,7 +25,7 @@ A Hetzner Cloud location where a **Personal Server** can be created.
 _Avoid_: region, datacenter
 
 **Personal Server Configuration**:
-The saved identity and addresses of a created **Personal Server**.
+The saved connection identity and addresses of a created **Personal Server**.
 _Avoid_: Hetzner config, remote config
 
 **Personal Server Firewall**:
@@ -39,6 +39,18 @@ _Avoid_: remote key, uploaded key
 **Mosh Access**:
 UDP-based interactive shell access installed and opened by default for a **Personal Server**.
 _Avoid_: optional roaming shell, manual UDP access
+
+**Personal Server Connection**:
+An SSH-backed interactive project-scoped tmux session on the configured **Personal Server**.
+_Avoid_: raw SSH session, Mosh session, remote shell
+
+**myn connect**:
+The canonical command for starting a **Personal Server Connection**, with `myn c` as its short alias.
+_Avoid_: myn ssh, myn tmux, myn shell
+
+**Project**:
+A connection target rooted at the configured project root itself or at a top-level directory directly under it.
+_Avoid_: Git repository, workspace, checkout
 
 **Personal Server User**:
 A Linux user account created on a **Personal Server** from a normalized form of the current local username.
@@ -68,11 +80,38 @@ _Avoid_: prompt lease, terminal lock
 
 - A **Personal Server** trusts the configured SSH identity for both root and user login.
 - A **Personal Server** keeps key-based root SSH enabled after bootstrap.
+- A **Personal Server Connection** uses SSH rather than **Mosh Access**.
+- A **Personal Server Connection** attaches the **Personal Server User** to an existing tmux session for the target project when one exists, otherwise it creates a new tmux session for that project.
+- A **Personal Server Connection** names tmux sessions from the remote **Project** root path using a stable `myn-` prefixed tmux-safe name.
+- A **Personal Server Connection** tmux session name lowercases the remote **Project** root path, keeps ASCII letters and digits, converts every other character run to one hyphen, trims edge hyphens, prefixes `myn-`, and uses `myn-project` if the normalized project path is empty.
+- A **Personal Server Connection** fails rather than falling back to plain SSH when tmux is unavailable.
+- A **Personal Server Connection** relies on the **Personal Server User** login shell PATH to find tmux.
+- A **Personal Server Connection** runs its remote tmux handoff through Bash login-shell command evaluation.
+- A **Personal Server Connection** trusts the saved **Personal Server Configuration** and does not require **Hetzner Credentials** or Hetzner API verification before connecting.
+- A **Personal Server Connection** uses the saved IPv4 address first and falls back to the saved IPv6 address only when IPv4 is unavailable.
+- A **Personal Server Connection** brackets IPv6 literals when building SSH targets.
+- A **Personal Server Connection** does not create an **Idle Lease** in the initial implementation.
+- A **Personal Server Connection** requires terminal-backed stdin and stdout.
+- A **Personal Server Connection** requests one SSH TTY allocation.
+- A **Personal Server Connection** always passes the configured SSH identity explicitly to SSH.
+- A **Personal Server Connection** uses SSH `StrictHostKeyChecking=accept-new`.
+- A **Personal Server Connection** preserves the SSH/tmux process exit status.
+- A **Personal Server Connection** validates saved configuration, local project root existence, and SSH identity existence before attempting SSH.
+- A **Personal Server Connection** stays quiet on successful handoff and prints clear messages only for local validation failures.
+- A **Personal Server Connection** derives the target **Project** from the first path segment under the configured local project root, not from the Git repository root.
+- A **Personal Server Connection** maps local paths lexically under the configured local project root and does not resolve symlink targets for project containment.
+- `myn connect` accepts no path arguments in the initial implementation and maps from the current working directory.
+- When `myn connect` is run from the configured local project root itself, the configured local project root is the target **Project**.
+- A **Personal Server Connection** starts in the exact mapped remote directory when it exists, otherwise the remote **Project** root when it exists, otherwise the **Personal Server User** home directory.
+- A **Personal Server Connection** treats only existing remote directories as valid starting directories.
+- A **Personal Server Connection** does not create missing remote project directories.
+- Directory fallback affects only newly created **Personal Server Connection** tmux sessions; existing project sessions are attached as-is.
+- `myn connect` fails with clear messaging when run outside the configured local project root.
 - `myn configure` does not modify the user's SSH config for **Personal Server** aliases.
 - All user-visible namespaces use `myn`, including config paths, environment variables, runtime lease directories, cloud resource names, Hetzner labels, bootstrap files, shell profile files, and local development launchers.
 - Documentation uses **Myn** in prose and `myn` for the command name; pronunciation belongs in introductory documentation, not command help.
 - Planning and decision documents keep their technical rationale but use the **Myn** namespace consistently.
-- **Myn** uses the command structure `auth hetzner`, `configure`, `idle status`, `run`, and `version`.
+- **Myn** uses the command structure `auth hetzner`, `configure`, `connect` (`c`), `idle status`, `run`, and `version`.
 - **Personal Server** prompts run only after local roots and the SSH identity are configured.
 - **Personal Server** creation is skipped unless a valid SSH identity is configured.
 - **Personal Server** provisioning does not clone or sync projects from the local root.
@@ -96,7 +135,8 @@ _Avoid_: prompt lease, terminal lock
 - **Myn** waits for Hetzner create actions to finish before root SSH and bootstrap polling.
 - Hetzner API calls, root SSH polling, and bootstrap polling respect command cancellation.
 - A **Personal Server Configuration** belongs in its own top-level config section.
-- A **Personal Server Configuration** stores `serverID`, `ipv4`, and the assigned `ipv6` address, not ongoing desired state for mutable server details.
+- A **Personal Server Configuration** stores `serverID`, **Personal Server User**, `ipv4`, and the assigned `ipv6` address, not ongoing desired state for mutable server details.
+- A **Personal Server Configuration** is incomplete without the **Personal Server User**.
 - **Location**, **Server Type**, and proposed server name selections are transient until a **Personal Server** is created.
 - When **Personal Server Configuration** already has a server ID, `myn configure` skips creation by default and reports the saved server ID and IP addresses.
 - A saved **Personal Server** server ID is verified against Hetzner before creation is skipped.
@@ -183,7 +223,7 @@ _Avoid_: prompt lease, terminal lock
 > **Dev:** "Where should selected cloud details be saved?"
 > **Domain expert:** "In a top-level **Personal Server Configuration**, separate from auth, project roots, and SSH identity."
 > **Dev:** "Should **Personal Server Configuration** store selected Location and Server Type?"
-> **Domain expert:** "No — store only the created server ID and IP addresses, because the user can customize the instance after creation."
+> **Domain expert:** "No — store only the connection identity and addresses needed to reconnect, because the user can customize the instance after creation."
 > **Dev:** "Should cloud choices be saved if final creation is declined?"
 > **Domain expert:** "No — they are transient unless a **Personal Server** is actually created."
 > **Dev:** "Should `configure` replace an existing configured **Personal Server**?"
