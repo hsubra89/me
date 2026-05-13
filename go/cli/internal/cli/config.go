@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type appConfig struct {
@@ -34,6 +35,7 @@ type sshConfig struct {
 
 type personalServerConfig struct {
 	ServerID int    `json:"serverID,omitempty"`
+	User     string `json:"user,omitempty"`
 	IPv4     string `json:"ipv4,omitempty"`
 	IPv6     string `json:"ipv6,omitempty"`
 }
@@ -80,7 +82,13 @@ func (cfg sshConfig) isZero() bool {
 }
 
 func (cfg personalServerConfig) isZero() bool {
-	return cfg.ServerID == 0 && cfg.IPv4 == "" && cfg.IPv6 == ""
+	return cfg.ServerID == 0 && cfg.User == "" && cfg.IPv4 == "" && cfg.IPv6 == ""
+}
+
+func (cfg personalServerConfig) isCompleteForConnection() bool {
+	return cfg.ServerID != 0 &&
+		strings.TrimSpace(cfg.User) != "" &&
+		(strings.TrimSpace(cfg.IPv4) != "" || strings.TrimSpace(cfg.IPv6) != "")
 }
 
 func defaultAppConfigPath(env func(string) string) (string, error) {

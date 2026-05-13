@@ -435,13 +435,13 @@ func (gate personalServerProvisioningGate) createPersonalServer(ctx context.Cont
 		return fmt.Errorf("create Personal Server: %w", err)
 	}
 	if err := client.WaitActions(ctx, actions); err != nil {
-		if saveErr := gate.savePersonalServerConfig(appConfigPath, cfg, server); saveErr != nil {
+		if saveErr := gate.savePersonalServerConfig(appConfigPath, cfg, server, plan.User); saveErr != nil {
 			return saveErr
 		}
 		return fmt.Errorf("wait for Personal Server create actions: %w", err)
 	}
 
-	if err := gate.savePersonalServerConfig(appConfigPath, cfg, server); err != nil {
+	if err := gate.savePersonalServerConfig(appConfigPath, cfg, server, plan.User); err != nil {
 		return err
 	}
 
@@ -457,9 +457,10 @@ func (gate personalServerProvisioningGate) createPersonalServer(ctx context.Cont
 	return writePersonalServerBootstrapReport(out, marker, plan, server)
 }
 
-func (gate personalServerProvisioningGate) savePersonalServerConfig(appConfigPath string, cfg appConfig, server personalServerCloudServer) error {
+func (gate personalServerProvisioningGate) savePersonalServerConfig(appConfigPath string, cfg appConfig, server personalServerCloudServer, user string) error {
 	cfg.PersonalServer = personalServerConfig{
 		ServerID: server.ID,
+		User:     user,
 		IPv4:     server.IPv4,
 		IPv6:     server.IPv6,
 	}

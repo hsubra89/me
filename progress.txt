@@ -1,0 +1,6 @@
+2026-05-13 - Issue 1: Persist the Personal Server User in Personal Server Configuration
+
+- Added the Personal Server User to saved/reloaded Personal Server Configuration JSON.
+- Updated provisioning so created Personal Servers persist the selected Personal Server User with server ID, IPv4, and IPv6 before bootstrap polling can fail or time out.
+- Added a connection-completeness guard that treats Personal Server Configuration without a Personal Server User as incomplete.
+- Verified with `go test ./...` and `go build ./...` from `go/cli`.

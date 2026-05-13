@@ -505,6 +505,9 @@ func assertLiveValidationConfig(t *testing.T, cfg appConfig) {
 	if cfg.PersonalServer.ServerID == 0 {
 		t.Fatal("live validation did not save Personal Server serverID")
 	}
+	if got := strings.TrimSpace(cfg.PersonalServer.User); got != liveValidationUser {
+		t.Fatalf("live validation Personal Server User mismatch: want %q, got %q", liveValidationUser, got)
+	}
 	if strings.TrimSpace(cfg.PersonalServer.IPv4) == "" {
 		t.Fatal("live validation did not save Personal Server IPv4")
 	}

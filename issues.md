@@ -6,30 +6,37 @@ Source: PRD: Project-Scoped Personal Server Connection
 
 1. **Title**: Persist the Personal Server User in Personal Server Configuration  
    **Type**: AFK  
+   **Status**: Done
    **Blocked by**: None  
    **User stories covered**: 35, 36, 38
 
 2. **Title**: Connect from the Configured Project Root  
    **Type**: AFK  
-   **Blocked by**: Issue 1  
+   **Status**: Ready
+   **Blocked by**: Issue 1 (done)
    **User stories covered**: 1, 2, 5, 20, 22, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 38
 
 3. **Title**: Map Local Subdirectories to Project-Scoped Remote Targets  
    **Type**: AFK  
+   **Status**: Blocked
    **Blocked by**: Issue 2  
    **User stories covered**: 3, 4, 6, 7, 8, 14, 33
 
 4. **Title**: Reuse and Create Project-Scoped tmux Sessions  
    **Type**: AFK  
+   **Status**: Blocked
    **Blocked by**: Issue 3  
    **User stories covered**: 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 31
 
 5. **Title**: Complete Host Selection and Connection Documentation  
    **Type**: AFK  
+   **Status**: Blocked
    **Blocked by**: Issues 2, 3, and 4  
    **User stories covered**: 21, 23, 24, 32, 33, 34
 
 ## Issue 1: Persist the Personal Server User in Personal Server Configuration
+
+**Status**: Done
 
 ## What to build
 
@@ -39,17 +46,19 @@ This slice should update the provisioning path end to end: when a Personal Serve
 
 ## Acceptance criteria
 
-- [ ] Personal Server Configuration stores and reloads the Personal Server User alongside server ID, IPv4, and IPv6.
-- [ ] A newly created Personal Server saves the Personal Server User before bootstrap polling can fail or time out.
-- [ ] Existing configure behavior still skips creation when a saved Personal Server exists and still reports saved and current addresses.
-- [ ] Personal Server Configuration without a Personal Server User is treated as incomplete for connection purposes.
-- [ ] Serialization, parsing, and provisioning tests cover the new Personal Server User field.
+- [x] Personal Server Configuration stores and reloads the Personal Server User alongside server ID, IPv4, and IPv6.
+- [x] A newly created Personal Server saves the Personal Server User before bootstrap polling can fail or time out.
+- [x] Existing configure behavior still skips creation when a saved Personal Server exists and still reports saved and current addresses.
+- [x] Personal Server Configuration without a Personal Server User is treated as incomplete for connection purposes.
+- [x] Serialization, parsing, and provisioning tests cover the new Personal Server User field.
 
 ## Blocked by
 
 None - can start immediately.
 
 ## Issue 2: Connect from the Configured Project Root
+
+**Status**: Ready
 
 ## What to build
 
@@ -76,9 +85,11 @@ On successful handoff, Myn should stay quiet and let SSH and tmux own the termin
 
 ## Blocked by
 
-- Issue 1: Persist the Personal Server User in Personal Server Configuration
+- Issue 1: Persist the Personal Server User in Personal Server Configuration (done)
 
 ## Issue 3: Map Local Subdirectories to Project-Scoped Remote Targets
+
+**Status**: Blocked
 
 ## What to build
 
@@ -102,6 +113,8 @@ The target Project is the configured project root itself when the command runs f
 - Issue 2: Connect from the Configured Project Root
 
 ## Issue 4: Reuse and Create Project-Scoped tmux Sessions
+
+**Status**: Blocked
 
 ## What to build
 
@@ -130,6 +143,8 @@ When creating a new session, choose the starting directory on the Personal Serve
 - Issue 3: Map Local Subdirectories to Project-Scoped Remote Targets
 
 ## Issue 5: Complete Host Selection and Connection Documentation
+
+**Status**: Blocked
 
 ## What to build
 

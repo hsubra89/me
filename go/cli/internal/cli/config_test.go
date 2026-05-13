@@ -38,6 +38,7 @@ func TestSaveAppConfigPersistsPersonalServerIdentityOnly(t *testing.T) {
 	if err := saveAppConfig(configPath, appConfig{
 		PersonalServer: personalServerConfig{
 			ServerID: 123456,
+			User:     "harish",
 			IPv4:     "203.0.113.10",
 			IPv6:     "2001:db8::1",
 		},
@@ -53,6 +54,7 @@ func TestSaveAppConfigPersistsPersonalServerIdentityOnly(t *testing.T) {
 	const want = `{
   "personalServer": {
     "serverID": 123456,
+    "user": "harish",
     "ipv4": "203.0.113.10",
     "ipv6": "2001:db8::1"
   }
@@ -60,6 +62,14 @@ func TestSaveAppConfigPersistsPersonalServerIdentityOnly(t *testing.T) {
 `
 	if got := string(data); got != want {
 		t.Fatalf("saved config mismatch:\nwant %s\ngot  %s", want, got)
+	}
+
+	cfg, err := loadAppConfig(configPath)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if got, want := cfg.PersonalServer.User, "harish"; got != want {
+		t.Fatalf("Personal Server User mismatch: want %q, got %q", want, got)
 	}
 }
 
@@ -83,4 +93,20 @@ func TestSaveAppConfigPreservesExistingParentDirectoryMode(t *testing.T) {
 
 	assertFileMode(t, dir, 0o755)
 	assertFileMode(t, configPath, 0o600)
+}
+
+func TestPersonalServerConfigurationRequiresUserForConnection(t *testing.T) {
+	cfg := personalServerConfig{
+		ServerID: 123456,
+		IPv4:     "203.0.113.10",
+	}
+
+	if cfg.isCompleteForConnection() {
+		t.Fatal("Personal Server Configuration without Personal Server User should be incomplete for connection")
+	}
+
+	cfg.User = "harish"
+	if !cfg.isCompleteForConnection() {
+		t.Fatal("Personal Server Configuration with server ID, user, and address should be complete for connection")
+	}
 }
