@@ -1,3 +1,7 @@
+# Review notes
+
+- Fix IPv6-only `myn connect` SSH handoff before treating Issue 5 as complete: OpenSSH treats `user@[IPv6]` as hostname `[IPv6]`, so build SSH argv with the user passed separately (for example, `-l <user> <unbracketed IPv6>`) and update tests/docs that currently expect bracketed IPv6 SSH targets.
+
 # Issues: Project-Scoped Personal Server Connection
 
 Source: PRD: Project-Scoped Personal Server Connection
