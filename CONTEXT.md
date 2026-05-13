@@ -44,6 +44,10 @@ _Avoid_: size, plan, instance type
 The first-boot cloud-init process that creates the **Personal Server User** and installs the expected development tools.
 _Avoid_: setup script, install script
 
+**Personal Server tmux Profile**:
+The standard tmux behavior that `me` installs for the **Personal Server User**.
+_Avoid_: copied tmux dotfile, local tmux config sync
+
 **Idle Lease**:
 A renewable runtime claim that keeps a **Personal Server** awake while there is recent evidence of user-triggered work.
 _Avoid_: lock, keepalive, inhibitor
@@ -126,7 +130,14 @@ _Avoid_: prompt lease, terminal lock
 - The **Personal Server Bootstrap** install plan is shown before final creation confirmation.
 - The **Personal Server Bootstrap** install plan groups system services, Homebrew tools, and coding agents separately.
 - Homebrew and Homebrew-installed tools belong to the **Personal Server User**, not root.
-- **Personal Server Bootstrap** does not copy local dotfiles or shell configuration beyond required Homebrew, nvm, and Git identity setup.
+- **Personal Server Bootstrap** does not copy local dotfiles or shell configuration beyond required Homebrew, nvm, Git identity setup, and the repo-owned **Personal Server tmux Profile**.
+- **Personal Server Bootstrap** installs the **Personal Server tmux Profile** for the **Personal Server User** instead of reading the user's local `~/.tmux.conf` at provisioning time.
+- Every new **Personal Server** receives the **Personal Server tmux Profile** without an extra prompt or saved configuration flag.
+- **Personal Server Bootstrap** writes the **Personal Server tmux Profile** during creation; this does not define a later repair or update policy for user-edited tmux configuration.
+- The **Personal Server tmux Profile** is installed as `/home/<Personal Server User>/.tmux.conf`, owned by the **Personal Server User**, not as system-wide tmux configuration.
+- The **Personal Server tmux Profile** is a literal snapshot of the intended tmux settings, not a curated subset.
+- The repo-owned **Personal Server tmux Profile** is the source of truth after it is seeded; tests and provisioning do not compare against the user's live local `~/.tmux.conf`.
+- The **Personal Server Bootstrap** install plan does not call out the **Personal Server tmux Profile** separately from the standard tool setup.
 - `tmux` is installed through Homebrew as part of the **Personal Server Bootstrap**.
 - `rustup` is installed through Homebrew, but no Rust toolchain is installed during the **Personal Server Bootstrap**.
 - Go is installed through the Homebrew `go` formula during the **Personal Server Bootstrap**.
@@ -137,6 +148,7 @@ _Avoid_: prompt lease, terminal lock
 - Claude Code is installed as the **Personal Server User** with its official installer script.
 - Coding agent installation failures do not fail the **Personal Server Bootstrap**; they are reported as partial failures.
 - **Personal Server Bootstrap** hard-fails system update/security setup, user creation, SSH authorization, remote project root creation, Homebrew, Docker, core Homebrew tools, nvm, and LTS Node/npm setup.
+- **Personal Server Bootstrap** hard-fails writing the **Personal Server tmux Profile**.
 - **Personal Server Bootstrap** hard-fails `mosh` installation because **Mosh Access** is default Personal Server access.
 - A **Stdio Lease** is active only while the wrapped command still exists and terminal input or output is recent.
 - A quiet **Stdio Lease** can become idle while the wrapped command is still waiting at a prompt.
@@ -223,6 +235,22 @@ _Avoid_: prompt lease, terminal lock
 > **Domain expert:** "No — install and run Homebrew as the **Personal Server User**."
 > **Dev:** "Should `tmux` be installed through apt or Homebrew?"
 > **Domain expert:** "Homebrew — it belongs with the user-owned development tools."
+> **Dev:** "Should the **Personal Server tmux Profile** come from the user's live local `~/.tmux.conf`?"
+> **Domain expert:** "No — `me` should install a repo-owned tmux profile so Personal Server provisioning stays reproducible."
+> **Dev:** "Should the **Personal Server tmux Profile** be curated or a literal snapshot of the intended local tmux settings?"
+> **Domain expert:** "Use a literal snapshot."
+> **Dev:** "Should installing the **Personal Server tmux Profile** be optional during creation?"
+> **Domain expert:** "No — every new Personal Server should receive it as part of the standard development environment."
+> **Dev:** "If a later bootstrap-like flow finds an existing tmux config, should this decision require preserving it?"
+> **Domain expert:** "No — this decision only says creation writes the standard profile; future repair or update behavior is separate."
+> **Dev:** "Should the **Personal Server tmux Profile** be system-wide?"
+> **Domain expert:** "No — install it as the Personal Server User's own `.tmux.conf`."
+> **Dev:** "Should the creation plan mention the **Personal Server tmux Profile** separately?"
+> **Domain expert:** "No — it does not need to mention the specific tmux configuration."
+> **Dev:** "Should failing to write the **Personal Server tmux Profile** be treated as a partial setup issue?"
+> **Domain expert:** "No — bootstrap should hard-fail because the expected development environment was not created."
+> **Dev:** "After seeding the snapshot, should tests keep comparing it to the user's live local `~/.tmux.conf`?"
+> **Domain expert:** "No — the repo-owned snapshot is canonical."
 > **Dev:** "Should bootstrap install a Rust stable toolchain?"
 > **Domain expert:** "No — install only the Homebrew `rustup` package."
 > **Dev:** "Should the package be called `golang`?"
@@ -243,3 +271,4 @@ _Avoid_: prompt lease, terminal lock
 - "remote machine" and "default server" both refer to **Personal Server** in this context.
 - "region" was used to mean **Location** — resolved: the CLI uses **Location** everywhere.
 - "lease" does not mean a permanent lock — resolved: an **Idle Lease** is renewable evidence of recent activity.
+- "same tmux settings" does not mean live dotfile sync — resolved: **Personal Server Bootstrap** installs a repo-owned **Personal Server tmux Profile**.

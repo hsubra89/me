@@ -1,6 +1,7 @@
 package cli
 
 import (
+	_ "embed"
 	"fmt"
 	"path"
 	"strings"
@@ -9,6 +10,9 @@ import (
 )
 
 const personalServerBootstrapScriptPath = "/usr/local/sbin/me-personal-server-bootstrap.sh"
+
+//go:embed personal_server_tmux.conf
+var personalServerTmuxProfile string
 
 type personalServerBootstrapInput struct {
 	User              string
@@ -280,6 +284,15 @@ APT::Periodic::Unattended-Upgrade "1";
 APTCONF
 
 install -d -o "$ME_USER" -g "$ME_USER" "$ME_REMOTE_PROJECT_ROOT"
+install -m 0644 -o "$ME_USER" -g "$ME_USER" /dev/null "/home/$ME_USER/.tmux.conf"
+cat >"/home/$ME_USER/.tmux.conf" <<'TMUXCONF'`)
+	fmt.Fprint(b, personalServerTmuxProfile)
+	if !strings.HasSuffix(personalServerTmuxProfile, "\n") {
+		fmt.Fprintln(b)
+	}
+	fmt.Fprintln(b, `TMUXCONF
+chown "$ME_USER:$ME_USER" "/home/$ME_USER/.tmux.conf"
+chmod 0644 "/home/$ME_USER/.tmux.conf"
 
 install -m 0755 -d /etc/apt/keyrings
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
