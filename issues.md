@@ -18,20 +18,20 @@ Source: PRD: Project-Scoped Personal Server Connection
 
 3. **Title**: Map Local Subdirectories to Project-Scoped Remote Targets  
    **Type**: AFK  
-   **Status**: Ready
+   **Status**: Done
    **Blocked by**: Issue 2 (done)
    **User stories covered**: 3, 4, 6, 7, 8, 14, 33
 
 4. **Title**: Reuse and Create Project-Scoped tmux Sessions  
    **Type**: AFK  
-   **Status**: Blocked
-   **Blocked by**: Issue 3  
+   **Status**: Ready
+   **Blocked by**: Issue 3 (done)
    **User stories covered**: 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 31
 
 5. **Title**: Complete Host Selection and Connection Documentation  
    **Type**: AFK  
    **Status**: Blocked
-   **Blocked by**: Issues 3 and 4  
+   **Blocked by**: Issue 4
    **User stories covered**: 21, 23, 24, 32, 33, 34
 
 ## Issue 1: Persist the Personal Server User in Personal Server Configuration
@@ -89,7 +89,7 @@ On successful handoff, Myn should stay quiet and let SSH and tmux own the termin
 
 ## Issue 3: Map Local Subdirectories to Project-Scoped Remote Targets
 
-**Status**: Ready
+**Status**: Done
 
 ## What to build
 
@@ -99,14 +99,14 @@ The target Project is the configured project root itself when the command runs f
 
 ## Acceptance criteria
 
-- [ ] A current working directory below the configured local project root maps to the matching remote path below the configured remote project root.
-- [ ] The configured local project root itself maps to the configured remote project root.
-- [ ] The target Project is derived from the first path segment under the configured local project root.
-- [ ] Git repository roots do not affect target Project derivation or remote path mapping.
-- [ ] Local path containment is lexical and does not resolve symlink targets.
-- [ ] Running outside the configured local project root fails before SSH.
-- [ ] Outside-root errors clearly include enough context to identify the configured local root and current working directory.
-- [ ] Tests cover roots and subdirectories with spaces, cleaned path segments, lexical symlink-style paths, and outside-root failure.
+- [x] A current working directory below the configured local project root maps to the matching remote path below the configured remote project root.
+- [x] The configured local project root itself maps to the configured remote project root.
+- [x] The target Project is derived from the first path segment under the configured local project root.
+- [x] Git repository roots do not affect target Project derivation or remote path mapping.
+- [x] Local path containment is lexical and does not resolve symlink targets.
+- [x] Running outside the configured local project root fails before SSH.
+- [x] Outside-root errors clearly include enough context to identify the configured local root and current working directory.
+- [x] Tests cover roots and subdirectories with spaces, cleaned path segments, lexical symlink-style paths, and outside-root failure.
 
 ## Blocked by
 
@@ -114,7 +114,7 @@ The target Project is the configured project root itself when the command runs f
 
 ## Issue 4: Reuse and Create Project-Scoped tmux Sessions
 
-**Status**: Blocked
+**Status**: Ready
 
 ## What to build
 
@@ -140,7 +140,7 @@ When creating a new session, choose the starting directory on the Personal Serve
 
 ## Blocked by
 
-- Issue 3: Map Local Subdirectories to Project-Scoped Remote Targets
+- Issue 3: Map Local Subdirectories to Project-Scoped Remote Targets (done)
 
 ## Issue 5: Complete Host Selection and Connection Documentation
 
@@ -169,5 +169,4 @@ Update documentation so users can discover `myn connect` and `myn c`, understand
 
 ## Blocked by
 
-- Issue 3: Map Local Subdirectories to Project-Scoped Remote Targets
 - Issue 4: Reuse and Create Project-Scoped tmux Sessions

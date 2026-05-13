@@ -78,6 +78,162 @@ func TestConnectFromConfiguredRootStartsSSHBackedTmux(t *testing.T) {
 	}
 }
 
+func TestConnectFromConfiguredSubdirectoryMapsToMatchingRemotePath(t *testing.T) {
+	fixture := newConnectTestFixture(t)
+	cfg := fixture.validConfig()
+	cfg.Projects.LocalRoot = "Code Projects"
+	cfg.Projects.RemoteRoot = "Remote Projects"
+	fixture.localRoot = filepath.Join(fixture.home, "Code Projects")
+	fixture.saveConfig(t, cfg)
+	cwd := filepath.Join(fixture.localRoot, "acme", "api", "src")
+	mkdirAll(t, cwd)
+
+	runner := &fakeConnectProcessRunner{}
+	deps := fixture.deps(runner)
+	deps.workingDir = func() (string, error) {
+		return cwd, nil
+	}
+
+	err := runConnectCommand(strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{}, nil, deps)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+
+	wantCommand := []string{
+		"ssh",
+		"-t",
+		"-o", "StrictHostKeyChecking=accept-new",
+		"-i", fixture.identity.PrivatePath,
+		"harish@203.0.113.10",
+		"bash", "-lc", `'exec tmux new-session -A -s myn-project -c $HOME/'\''Remote Projects/acme/api/src'\'''`,
+	}
+	if len(runner.requests) != 1 {
+		t.Fatalf("process run count mismatch: want 1, got %d", len(runner.requests))
+	}
+	if got := runner.requests[0].Command; !reflect.DeepEqual(got, wantCommand) {
+		t.Fatalf("ssh command mismatch:\nwant %#v\ngot  %#v", wantCommand, got)
+	}
+}
+
+func TestPlanPersonalServerConnectionMapsLocalPathsLexically(t *testing.T) {
+	tests := []struct {
+		name                  string
+		localRoot             string
+		remoteRoot            string
+		setup                 func(t *testing.T, fixture connectTestFixture) string
+		wantRemotePath        string
+		wantRemoteProjectRoot string
+	}{
+		{
+			name:       "configured root maps to remote root",
+			localRoot:  "projects",
+			remoteRoot: "projects",
+			setup: func(t *testing.T, fixture connectTestFixture) string {
+				t.Helper()
+				return fixture.localRoot
+			},
+			wantRemotePath:        "projects",
+			wantRemoteProjectRoot: "projects",
+		},
+		{
+			name:       "subdirectory maps below first segment project",
+			localRoot:  "projects",
+			remoteRoot: "projects",
+			setup: func(t *testing.T, fixture connectTestFixture) string {
+				t.Helper()
+				cwd := filepath.Join(fixture.localRoot, "acme", "api", "src")
+				mkdirAll(t, cwd)
+				return cwd
+			},
+			wantRemotePath:        "projects/acme/api/src",
+			wantRemoteProjectRoot: "projects/acme",
+		},
+		{
+			name:       "roots and subdirectories with spaces",
+			localRoot:  "Code Projects",
+			remoteRoot: "Remote Projects",
+			setup: func(t *testing.T, fixture connectTestFixture) string {
+				t.Helper()
+				localRoot := filepath.Join(fixture.home, "Code Projects")
+				cwd := filepath.Join(localRoot, "Client Apps", "api")
+				mkdirAll(t, cwd)
+				return cwd
+			},
+			wantRemotePath:        "Remote Projects/Client Apps/api",
+			wantRemoteProjectRoot: "Remote Projects/Client Apps",
+		},
+		{
+			name:       "cleaned current directory segments",
+			localRoot:  "projects",
+			remoteRoot: "projects",
+			setup: func(t *testing.T, fixture connectTestFixture) string {
+				t.Helper()
+				cwd := filepath.Join(fixture.localRoot, "acme", "api", "src")
+				mkdirAll(t, cwd)
+				return strings.Join([]string{fixture.localRoot, "acme", "..", "acme", "api", ".", "src"}, string(filepath.Separator))
+			},
+			wantRemotePath:        "projects/acme/api/src",
+			wantRemoteProjectRoot: "projects/acme",
+		},
+		{
+			name:       "nested git root does not affect project derivation",
+			localRoot:  "projects",
+			remoteRoot: "projects",
+			setup: func(t *testing.T, fixture connectTestFixture) string {
+				t.Helper()
+				cwd := filepath.Join(fixture.localRoot, "acme", "api")
+				mkdirAll(t, filepath.Join(cwd, ".git"))
+				return cwd
+			},
+			wantRemotePath:        "projects/acme/api",
+			wantRemoteProjectRoot: "projects/acme",
+		},
+		{
+			name:       "visible symlink-style path is mapped lexically",
+			localRoot:  "projects",
+			remoteRoot: "projects",
+			setup: func(t *testing.T, fixture connectTestFixture) string {
+				t.Helper()
+				target := filepath.Join(t.TempDir(), "outside-projects")
+				mkdirAll(t, filepath.Join(target, "service"))
+				link := filepath.Join(fixture.localRoot, "linked")
+				if err := os.Symlink(target, link); err != nil {
+					t.Skipf("create symlink: %v", err)
+				}
+				return filepath.Join(link, "service")
+			},
+			wantRemotePath:        "projects/linked/service",
+			wantRemoteProjectRoot: "projects/linked",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fixture := newConnectTestFixture(t)
+			cfg := fixture.validConfig()
+			cfg.Projects.LocalRoot = tt.localRoot
+			cfg.Projects.RemoteRoot = tt.remoteRoot
+			cwd := tt.setup(t, fixture)
+
+			plan, err := planPersonalServerConnection(cfg, fixture.home, connectDeps{
+				workingDir: func() (string, error) {
+					return cwd, nil
+				},
+				stat: os.Stat,
+			})
+			if err != nil {
+				t.Fatalf("plan connection: %v", err)
+			}
+			if plan.remotePath != tt.wantRemotePath {
+				t.Fatalf("remote path mismatch: want %q, got %q", tt.wantRemotePath, plan.remotePath)
+			}
+			if plan.remoteProjectRoot != tt.wantRemoteProjectRoot {
+				t.Fatalf("remote project root mismatch: want %q, got %q", tt.wantRemoteProjectRoot, plan.remoteProjectRoot)
+			}
+		})
+	}
+}
+
 func TestConnectCommandAndAliasRouteToSameBehavior(t *testing.T) {
 	for _, commandName := range []string{"connect", "c"} {
 		t.Run(commandName, func(t *testing.T) {
@@ -238,6 +394,34 @@ func TestConnectValidatesLocalPreconditionsBeforeSSH(t *testing.T) {
 				t.Fatalf("process should not start after validation error, got %d calls", len(runner.requests))
 			}
 		})
+	}
+}
+
+func TestConnectOutsideConfiguredLocalRootFailsBeforeSSH(t *testing.T) {
+	fixture := newConnectTestFixture(t)
+	cwd := filepath.Join(fixture.home, "elsewhere", "acme")
+	mkdirAll(t, cwd)
+	runner := &fakeConnectProcessRunner{}
+	deps := fixture.deps(runner)
+	deps.workingDir = func() (string, error) {
+		return cwd, nil
+	}
+
+	err := runConnectCommand(strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{}, nil, deps)
+	if err == nil {
+		t.Fatal("expected outside-root error")
+	}
+	for _, want := range []string{
+		"outside configured local project root",
+		fixture.localRoot,
+		cwd,
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("unexpected outside-root error: want %q in %q", want, err.Error())
+		}
+	}
+	if len(runner.requests) != 0 {
+		t.Fatalf("process should not start after outside-root error, got %d calls", len(runner.requests))
 	}
 }
 

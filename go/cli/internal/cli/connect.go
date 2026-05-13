@@ -34,10 +34,11 @@ type connectProcessRequest struct {
 }
 
 type connectPlan struct {
-	sshUser         string
-	sshHost         string
-	sshIdentityPath string
-	remoteRoot      string
+	sshUser           string
+	sshHost           string
+	sshIdentityPath   string
+	remotePath        string
+	remoteProjectRoot string
 }
 
 func newConnectCommand(deps connectDeps) *cobra.Command {
@@ -71,7 +72,7 @@ func runConnectCommand(stdin io.Reader, stdout io.Writer, stderr io.Writer, args
 		return fmt.Errorf("find user home directory: %w", err)
 	}
 
-	plan, err := planRootPersonalServerConnection(cfg, home, deps)
+	plan, err := planPersonalServerConnection(cfg, home, deps)
 	if err != nil {
 		return err
 	}
@@ -124,7 +125,7 @@ func fillConnectDeps(deps connectDeps) connectDeps {
 	return deps
 }
 
-func planRootPersonalServerConnection(cfg appConfig, home string, deps connectDeps) (connectPlan, error) {
+func planPersonalServerConnection(cfg appConfig, home string, deps connectDeps) (connectPlan, error) {
 	if strings.TrimSpace(cfg.Projects.LocalRoot) == "" {
 		return connectPlan{}, fmt.Errorf("local project root is not configured; run `myn configure`")
 	}
@@ -169,21 +170,45 @@ func planRootPersonalServerConnection(cfg appConfig, home string, deps connectDe
 	if err != nil {
 		return connectPlan{}, fmt.Errorf("find current working directory: %w", err)
 	}
-	if filepath.Clean(cwd) != filepath.Clean(localRootPath) {
-		return connectPlan{}, fmt.Errorf("myn connect currently supports running from the configured local project root %q; current working directory is %q", localRootPath, cwd)
+	localRelativePath, err := localPathRelativeToProjectRoot(localRootPath, cwd)
+	if err != nil {
+		return connectPlan{}, err
 	}
 
 	remoteRoot, err := normalizeRemoteProjectRoot(cfg.Projects.RemoteRoot)
 	if err != nil {
 		return connectPlan{}, err
 	}
+	remotePath := remoteRoot
+	remoteProjectRoot := remoteRoot
+	if localRelativePath != "." {
+		remoteRelativePath := filepath.ToSlash(localRelativePath)
+		remotePath = path.Join(remoteRoot, remoteRelativePath)
+		remoteProjectRoot = path.Join(remoteRoot, strings.Split(remoteRelativePath, "/")[0])
+	}
 
 	return connectPlan{
-		sshUser:         strings.TrimSpace(cfg.PersonalServer.User),
-		sshHost:         host,
-		sshIdentityPath: identityPath,
-		remoteRoot:      remoteRoot,
+		sshUser:           strings.TrimSpace(cfg.PersonalServer.User),
+		sshHost:           host,
+		sshIdentityPath:   identityPath,
+		remotePath:        remotePath,
+		remoteProjectRoot: remoteProjectRoot,
 	}, nil
+}
+
+func localPathRelativeToProjectRoot(localRootPath string, cwd string) (string, error) {
+	localRootPath = filepath.Clean(localRootPath)
+	cwd = filepath.Clean(cwd)
+
+	relative, err := filepath.Rel(localRootPath, cwd)
+	if err != nil {
+		return "", fmt.Errorf("current working directory %q is outside configured local project root %q", cwd, localRootPath)
+	}
+	if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
+		return "", fmt.Errorf("current working directory %q is outside configured local project root %q", cwd, localRootPath)
+	}
+
+	return relative, nil
 }
 
 func validateExistingDirectory(stat func(string) (os.FileInfo, error), value string, name string) error {
@@ -221,7 +246,7 @@ func connectSSHCommand(plan connectPlan) []string {
 		"-o", "StrictHostKeyChecking=accept-new",
 		"-i", plan.sshIdentityPath,
 		plan.sshUser + "@" + personalServerSSHCommandHost(plan.sshHost),
-		"bash", "-lc", shellQuote(connectRemoteHandoffCommand(plan.remoteRoot)),
+		"bash", "-lc", shellQuote(connectRemoteHandoffCommand(plan.remotePath)),
 	}
 }
 

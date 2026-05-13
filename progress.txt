@@ -12,3 +12,11 @@
 - Built the SSH-backed tmux handoff with one TTY allocation, `StrictHostKeyChecking=accept-new`, the configured identity, `bash -lc`, and quiet success behavior.
 - Added fake-backed tests for command routing, root-to-remote-root mapping, local validation, quiet handoff, and exit-status preservation.
 - Verified with `go test ./...` and `go build ./...` from `go/cli`.
+
+2026-05-13 - Issue 3: Map Local Subdirectories to Project-Scoped Remote Targets
+
+- Extended Personal Server Connection planning to map the current working directory lexically under the configured local project root to the matching remote path.
+- Added target Project derivation from the first local path segment, while keeping the configured root itself as the Project when connecting from the root.
+- Replaced the root-only guard with outside-root validation that reports both the configured local root and current working directory before SSH starts.
+- Added tests for subdirectory handoff, root mapping, spaces, cleaned path segments, nested Git roots, lexical symlink-style paths, and outside-root failure.
+- Verified with `go test ./...` and `go build ./...` from `go/cli`.
