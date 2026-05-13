@@ -42,3 +42,10 @@
 - Updated focused connect tests and user-facing docs/PRD language away from bracketed IPv6 SSH targets.
 - Removed the resolved review-note queue from `issues.md`.
 - Verified with `go test ./...`, `go build ./...`, and `git diff --check` from `go/cli`/repo root.
+
+2026-05-13 - Issue 6: Align Domain Docs with IPv6 SSH Handoff
+
+- Added the missing issue-tracker slice for the stale domain documentation found after the PRD implementation issues were complete.
+- Updated `CONTEXT.md` so Personal Server Connection IPv6 behavior says SSH receives the Personal Server User via `-l` and an unbracketed host argument.
+- Marked Issue 6 complete in `issues.md`.
+- Verified with `go test ./...`, `go build ./...`, and `git diff --check` from `go/cli`/repo root.

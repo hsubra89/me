@@ -34,6 +34,12 @@ Source: PRD: Project-Scoped Personal Server Connection
    **Blocked by**: Issue 4 (done)
    **User stories covered**: 21, 23, 24, 32, 33, 34
 
+6. **Title**: Align Domain Docs with IPv6 SSH Handoff
+   **Type**: AFK
+   **Status**: Done
+   **Blocked by**: Issue 5 (done)
+   **User stories covered**: 24
+
 ## Issue 1: Persist the Personal Server User in Personal Server Configuration
 
 **Status**: Done
@@ -170,3 +176,22 @@ Update documentation so users can discover `myn connect` and `myn c`, understand
 ## Blocked by
 
 - Issue 4: Reuse and Create Project-Scoped tmux Sessions (done)
+
+## Issue 6: Align Domain Docs with IPv6 SSH Handoff
+
+**Status**: Done
+
+## What to build
+
+Update the domain documentation so the Personal Server Connection relationship language matches the PRD and implementation for IPv6-only SSH handoff.
+
+The current behavior passes the Personal Server User with `-l` and passes the selected host as a separate unbracketed SSH host argument, including for IPv6 literals.
+
+## Acceptance criteria
+
+- [x] Domain documentation says IPv6 hosts are passed unbracketed with the Personal Server User supplied separately.
+- [x] The issue tracker records this documentation sync as complete.
+
+## Blocked by
+
+- Issue 5: Complete Host Selection and Connection Documentation (done)

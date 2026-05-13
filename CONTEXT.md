@@ -89,7 +89,7 @@ _Avoid_: prompt lease, terminal lock
 - A **Personal Server Connection** runs its remote tmux handoff through Bash login-shell command evaluation.
 - A **Personal Server Connection** trusts the saved **Personal Server Configuration** and does not require **Hetzner Credentials** or Hetzner API verification before connecting.
 - A **Personal Server Connection** uses the saved IPv4 address first and falls back to the saved IPv6 address only when IPv4 is unavailable.
-- A **Personal Server Connection** brackets IPv6 literals when building SSH targets.
+- A **Personal Server Connection** passes the **Personal Server User** to SSH separately with `-l` and passes IPv6 literals as unbracketed host arguments.
 - A **Personal Server Connection** does not create an **Idle Lease** in the initial implementation.
 - A **Personal Server Connection** requires terminal-backed stdin and stdout.
 - A **Personal Server Connection** requests one SSH TTY allocation.
