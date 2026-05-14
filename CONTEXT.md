@@ -16,6 +16,10 @@ _Avoid_: generic command aliases
 A tagged GitHub Release that distributes downloadable **Myn** CLI binaries.
 _Avoid_: GitHub Package, package registry release
 
+**Myn Installer**:
+A curl-able shell installer that installs the `myn` command from a **Myn Release**.
+_Avoid_: Homebrew formula, Personal Server Bootstrap
+
 **Personal Server**:
 A Hetzner Cloud server that **Myn** provisions for the user's cloud-hosted development environment.
 _Avoid_: remote machine, default server, Myn Server
@@ -131,6 +135,28 @@ _Avoid_: prompt lease, terminal lock
 - A **Myn Release** workflow fails rather than overwriting an existing release.
 - A **Myn Release** is published immediately after release validation, tests, packaging, and checksum generation pass.
 - **Myn** documents how to install a **Myn Release** binary from the published release assets.
+- A **Myn Installer** installs the local `myn` command from GitHub Release assets rather than from a Homebrew tap or formula.
+- A **Myn Installer** installs `myn` to `$HOME/.local/bin/myn` by default.
+- A **Myn Installer** does not require `sudo` for its default install path.
+- A **Myn Installer** reports when `$HOME/.local/bin` is not on `PATH` rather than editing shell profiles.
+- A **Myn Installer** installs the latest stable **Myn Release** by default.
+- A **Myn Installer** can install an explicitly pinned release version.
+- A **Myn Installer** does not install prereleases unless a prerelease version is explicitly pinned.
+- A **Myn Installer** does not support changing the install directory.
+- A **Myn Installer** runs non-interactively.
+- A **Myn Installer** requires only common shell tools and a release checksum tool, not `jq`, `gh`, Git, Homebrew, or Go.
+- A **Myn Installer** fails rather than installing without verifying the matching release checksum.
+- A **Myn Installer** supports only the operating systems and CPU architectures published by **Myn Release** assets.
+- The canonical **Myn Installer** script lives at `go/cli/install.sh`.
+- The documented **Myn Installer** command fetches the installer script from `master`.
+- A **Myn Installer** installs released binaries rather than building from `master`.
+- A **Myn Installer** overwrites `$HOME/.local/bin/myn` after the downloaded binary is verified.
+- A **Myn Installer** resolves the latest stable release from public GitHub release URLs without requiring GitHub authentication.
+- A **Myn Installer** prints concise progress for version selection, platform detection, download, checksum verification, install path, and PATH warnings.
+- A **Myn Installer** runs the installed `myn version` after installation.
+- A **Myn Installer** has automated coverage for version resolution, pinned installs, platform asset naming, checksum failure, unsupported platforms, overwrite behavior, and PATH warnings.
+- A **Myn Installer** is tested by the existing Go CLI CI.
+- A **Myn Installer** is tested from Go tests rather than a separate shell test framework.
 - All user-visible namespaces use `myn`, including config paths, environment variables, runtime lease directories, cloud resource names, Hetzner labels, bootstrap files, shell profile files, and local development launchers.
 - Documentation uses **Myn** in prose and `myn` for the command name; pronunciation belongs in introductory documentation, not command help.
 - Planning and decision documents keep their technical rationale but use the **Myn** namespace consistently.
@@ -349,3 +375,4 @@ _Avoid_: prompt lease, terminal lock
 - "lease" does not mean a permanent lock — resolved: an **Idle Lease** is renewable evidence of recent activity.
 - "same tmux settings" does not mean live dotfile sync — resolved: **Personal Server Bootstrap** installs a repo-owned **Personal Server tmux Profile**.
 - "GitHub package" was used to mean downloadable CLI assets — resolved: use **Myn Release** assets, not GitHub Packages.
+- "Homebrew-like installer" means **Myn Installer**, not a Homebrew tap or **Personal Server Bootstrap** behavior.
