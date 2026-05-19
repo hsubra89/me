@@ -546,6 +546,7 @@ func TestConnectWithSessionNumberAttachesExistingProjectSessionOnly(t *testing.T
 		"ssh",
 		"-t",
 		"-o", "StrictHostKeyChecking=accept-new",
+		"-o", "IdentitiesOnly=yes",
 		"-i", fixture.identity.PrivatePath,
 		"-l", "harish",
 		"203.0.113.10",
