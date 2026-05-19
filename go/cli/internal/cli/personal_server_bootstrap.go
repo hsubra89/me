@@ -394,6 +394,7 @@ PermitRootLogin no
 AllowUsers %s
 
 PubkeyAuthentication yes
+RequiredRSASize 3072
 AuthenticationMethods publickey
 PasswordAuthentication no
 KbdInteractiveAuthentication no
